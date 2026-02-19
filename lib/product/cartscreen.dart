@@ -3,7 +3,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_learning/product/model/productmodel.dart';
 import 'package:flutter_learning/product/model/cartmmodel.dart';
 import 'package:flutter_learning/product/web_view.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'production_api.dart';
 
 class CartScreen extends StatefulWidget {
@@ -175,13 +174,6 @@ class _CartScreenState extends State<CartScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -258,9 +250,9 @@ class _CartScreenState extends State<CartScreen> {
           ),
         );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Checkout opened!")),
-        );
+        // ScaffoldMessenger.of(context).showSnackBar(
+        //   const SnackBar(content: Text("✅ Checkout opened!")),
+        // );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(

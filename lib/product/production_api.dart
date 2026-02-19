@@ -5,18 +5,20 @@ import 'package:flutter_learning/product/model/productmodel.dart';
 import 'package:http/http.dart' as http;
 
 class ProductApiService {
-  static const String baseUrl = "http://localhost:8080/api/shopify";
+  static const String baseUrl =
+      "https://67cd-183-82-6-26.ngrok-free.app/api/shopify";
+
+  // static const baseUrl = "http://localhost:8080/api/shopify";
 
   static String? lastCheckoutUrl;
 
   static Future<List<ProductNodeModel>> fetchProducts() async {
     try {
-      final response = await http.get(
-        Uri.parse("$baseUrl/products"),
-        headers: {'Content-Type': 'application/json'},
-      );
+      final response = await http.get(Uri.parse("$baseUrl/products"), headers: {
+        'Content-Type': 'application/json',
+      });
 
-      print('✅ Status: ${response.statusCode}');
+      // print('✅ Status: ${response.statusCode}');
       print('📦 Response length: ${response.body.length}');
 
       if (response.statusCode == 200) {
@@ -105,34 +107,34 @@ class ProductApiService {
     }
   }
 
-  static Future<Map<String, dynamic>> createCartRaw(CartCreateRequest request) async {
-  try {
-    print('🛒 Creating RAW cart with ${request.items.length} items');
+  static Future<Map<String, dynamic>> createCartRaw(
+      CartCreateRequest request) async {
+    try {
+      print('🛒 Creating RAW cart with ${request.items.length} items');
 
-    final response = await http.post(
-      Uri.parse("$baseUrl/cart"),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode(request.toJson()),
-    );
-    
-    print('✅ Status: ${response.statusCode}');
-    print('📦 Raw Response: ${response.body}');
+      final response = await http.post(
+        Uri.parse("$baseUrl/cart"),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(request.toJson()),
+      );
 
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      final Map<String, dynamic> data = json.decode(response.body);
-      
-      // ✅ Store checkout URL even in raw method
-      lastCheckoutUrl = data['data']?['cartCreate']?['cart']?['checkoutUrl'];
-      print('🔗 Checkout URL saved: $lastCheckoutUrl');
-      
-      return data;
+      print('✅ Status: ${response.statusCode}');
+      print('📦 Raw Response: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final Map<String, dynamic> data = json.decode(response.body);
+
+        // ✅ Store checkout URL even in raw method
+        lastCheckoutUrl = data['data']?['cartCreate']?['cart']?['checkoutUrl'];
+        print('🔗 Checkout URL saved: $lastCheckoutUrl');
+
+        return data;
+      }
+
+      throw Exception('Failed to create cart: HTTP ${response.statusCode}');
+    } catch (e) {
+      print('❌ Raw Cart Error: $e');
+      rethrow;
     }
-
-    throw Exception('Failed to create cart: HTTP ${response.statusCode}');
-  } catch (e) {
-    print('❌ Raw Cart Error: $e');
-    rethrow;
   }
-}
-
 }

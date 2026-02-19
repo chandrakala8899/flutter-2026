@@ -37,13 +37,19 @@ class _CheckoutWebViewState extends State<CheckoutWebView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Checkout"),
+        title: const Text(
+          "Checkout",
+          style: TextStyle(color: Colors.white),
+        ),
+        backgroundColor: Colors.deepPurple,
+        iconTheme: const IconThemeData(
+          color: Colors.white, // 👈 Back arrow color
+        ),
       ),
       body: Stack(
         children: [
           WebViewWidget(controller: controller),
-          if (isPageLoading)
-            const Center(child: CircularProgressIndicator()),
+          if (isPageLoading) const Center(child: CircularProgressIndicator()),
         ],
       ),
     );

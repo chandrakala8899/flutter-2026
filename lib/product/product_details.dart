@@ -31,6 +31,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
           style: const TextStyle(color: Colors.white, fontSize: 18),
         ),
         backgroundColor: Colors.deepPurple,
+        iconTheme: const IconThemeData(
+          color: Colors.white, 
+        ),
         elevation: 0,
         actions: [
           IconButton(
@@ -51,17 +54,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     Hero(
                       tag: widget.product.id,
                       child: Container(
-                        height: 340,
+                        height: 320,
                         margin: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(28),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.15),
-                              blurRadius: 30,
-                              offset: const Offset(0, 15),
-                            ),
-                          ],
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(28),
@@ -110,26 +106,18 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               ],
                             ),
                             borderRadius: BorderRadius.circular(30),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.green.withOpacity(0.4),
-                                blurRadius: 25,
-                                offset: const Offset(0, 12),
-                              ),
-                            ],
                           ),
                           child: const Icon(
                             Icons.add_shopping_cart_rounded,
                             color: Colors.white,
-                            size: 26,
+                            size: 22,
                           ),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-
+                const SizedBox(height: 16),
                 // Price & Rating
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -142,7 +130,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           Text(
                             "${widget.product.currency} ${widget.product.price}",
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 18,
                               fontWeight: FontWeight.bold,
                               color: Colors.black,
                               height: 1.1,
@@ -185,7 +173,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         ],
                       ),
                       Container(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: Colors.green[50],
                           borderRadius: BorderRadius.circular(20),
@@ -194,7 +182,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           children: [
                             Icon(Icons.local_shipping,
                                 color: Colors.green[700], size: 28),
-                            const SizedBox(height: 4),
                             Text("Free",
                                 style: TextStyle(
                                   color: Colors.green[700],
@@ -207,7 +194,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 8),
 
                 // Description
                 if (widget.product.description.isNotEmpty) ...[
@@ -220,7 +207,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           children: [
                             Container(
                               width: 5,
-                              height: 28,
+                              height: 16,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [Colors.deepPurple, Colors.purple],
@@ -267,14 +254,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 50),
+                const SizedBox(height: 20),
 
                 // ✅ FIXED Buy Now Button
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: SizedBox(
                     width: double.infinity,
-                    height: 70,
+                    height: 38,
                     child: ElevatedButton.icon(
                       onPressed: () {
                         // ✅ Navigate to CartScreen with CURRENT product only
@@ -291,11 +278,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.payment, size: 28),
+                      icon: const Icon(Icons.payment, size: 22),
                       label: const Text(
                         "BUY NOW - Secure Checkout",
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
