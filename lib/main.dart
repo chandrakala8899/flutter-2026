@@ -1,19 +1,45 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_learning/27Feb/sign_up_screen.dart';
-import 'package:flutter_learning/home_screen.dart';
-import 'package:flutter_learning/4th_march/scroll_example.dart';
-import 'package:flutter_learning/profile.dart';
-import 'package:get/get_navigation/src/root/get_material_app.dart';
+import 'package:flutter_learning/product/production_screen.dart';
 
 void main() {
-  runApp(HomePage());
+  runApp(const AstrologyQueueApp());
 }
 
-class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+class AstrologyQueueApp extends StatelessWidget {
+  const AstrologyQueueApp({super.key});
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return MultiProvider(
+//       providers: [
+//         ChangeNotifierProvider(create: (_) => QueueProvider()),
+//       ],
+//       child: const MaterialApp(
+//         debugShowCheckedModeBanner: false,
+//         home: AstroHomeScreen(),
+//       ),
+//     );
+//   }
+// }
 
   @override
   Widget build(BuildContext context) {
-    return GetMaterialApp(home: HomeScreen());
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Consultation App',
+      theme: ThemeData(
+        primarySwatch: Colors.indigo,
+        useMaterial3: true,
+      ),
+      // home: const LoginScreen(),
+       home: const ProductsScreen(),
+      // initialRoute: AppRoutes.login,
+      // onGenerateRoute: AppRouter.generateRoute,
+
+      // // ✅ Named routes for convenience
+      // routes: {
+      //   AppRoutes.login: (context) => const LoginScreen(),
+      // },
+    );
   }
 }

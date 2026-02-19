@@ -99,32 +99,32 @@ class _LoginFormScreenState extends State<LoginFormScreen> {
             Text('Male'),
           ],
         ),
-        // Row(
-        //   children: [
-        //     Radio(
-        //         value: 'Female',
-        //         groupValue: groupValue,
-        //         onChanged: (val) {
-        //           setState(() {
-        //             groupValue = val;
-        //           });
-        //         }),
-        //     Text('Female'),
-        //   ],
-        // ),
-        // Row(
-        //   children: [
-        //     Radio(
-        //         value: 'Others',
-        //         groupValue: groupValue,
-        //         onChanged: (val) {
-        //           setState(() {
-        //             groupValue = val;
-        //           });
-        //         }),
-        //     Text('Others'),
-        //   ],
-        // )
+        Row(
+          children: [
+            Radio(
+                value: 'Female',
+                groupValue: groupValue,
+                onChanged: (val) {
+                  setState(() {
+                    groupValue = val;
+                  });
+                }),
+            Text('Female'),
+          ],
+        ),
+        Row(
+          children: [
+            Radio(
+                value: 'Others',
+                groupValue: groupValue,
+                onChanged: (val) {
+                  setState(() {
+                    groupValue = val;
+                  });
+                }),
+            Text('Others'),
+          ],
+        )
       ],
     );
   }

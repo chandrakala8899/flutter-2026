@@ -34,6 +34,7 @@ class _CounterWithGetxState extends State<CounterWithGetx> {
                 style: TextStyle(fontSize: 30),
               ),
             ),
+
             GetBuilder<CounterController>(
               builder: (CounterController controller) {
                 return Text(
@@ -42,6 +43,7 @@ class _CounterWithGetxState extends State<CounterWithGetx> {
                 );
               },
             ),
+            
             Row(
               children: [
                 ElevatedButton(

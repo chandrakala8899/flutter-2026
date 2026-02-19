@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get_state_manager/get_state_manager.dart';
 import 'package:get/route_manager.dart';
-import 'package:get/utils.dart';
 import 'package:http/http.dart' as http;
 
 class NetworkScreenController extends GetxController {
@@ -29,6 +28,7 @@ class NetworkScreenController extends GetxController {
     hideLoader();
 
     if (result.statusCode == 200) {
+      
       String value = result.body;
 
       data = value;
