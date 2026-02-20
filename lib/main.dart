@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_learning/astro_queue/screens/login.dart';
-import 'package:flutter_learning/router/app_router.dart';
-import 'package:flutter_learning/router/approutes.dart';
+import 'package:flutter_learning/product/login/screens/shopify_login.dart';
 
 void main() {
   runApp(const AstrologyQueueApp());
@@ -34,14 +32,14 @@ class AstrologyQueueApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // home: const LoginScreen(),
-      // home: const ShopifyHomescreen(),
-      initialRoute: AppRoutes.login,
-      onGenerateRoute: AppRouter.generateRoute,
+      home: const ShopifyLogin(),
+      // initialRoute: AppRoutes.login,
+      // onGenerateRoute: AppRouter.generateRoute,
 
-      // ✅ Named routes for convenience
-      routes: {
-        AppRoutes.login: (context) => const LoginScreen(),
-      },
+      // // ✅ Named routes for convenience
+      // routes: {
+      //   AppRoutes.login: (context) => const LoginScreen(),
+      // },
     );
   }
 }

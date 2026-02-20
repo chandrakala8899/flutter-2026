@@ -8,4 +8,6 @@ class AppRoutes {
   
   // Practitioner
   static const String practitionerHome = '/practitioner/home';
+
+  static const String  ProductsScreen = '/shopify-products';
 }

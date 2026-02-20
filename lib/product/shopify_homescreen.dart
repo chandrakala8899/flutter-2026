@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_learning/product/category_freesection.dart';
+import 'package:flutter_learning/colors.dart';
+import 'package:flutter_learning/product/screens/category_freesection.dart';
 import 'package:flutter_learning/product/production_screen.dart';
 
 class ShopifyHomescreen extends StatefulWidget {
+  // ✅ Proper class name
   const ShopifyHomescreen({super.key});
 
   @override
@@ -15,6 +17,7 @@ class _ShopifyHomescreenState extends State<ShopifyHomescreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: Text(
           "Shopify",
           style: const TextStyle(
@@ -23,23 +26,24 @@ class _ShopifyHomescreenState extends State<ShopifyHomescreen> {
             fontSize: 18,
           ),
         ),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: primaryColor,
         elevation: 0,
+        iconTheme: const IconThemeData(
+          color: Colors.white,
+        ),
       ),
       body: CustomScrollView(
-        // ✅ Single scrollable container
         slivers: [
-          // Category Section
           SliverToBoxAdapter(
             child: SizedBox(
-              height: 140, // ✅ Fixed height constraint
+              height: 125,
               child: CategoryFreesection(),
             ),
           ),
 
           // Products Grid
           SliverFillRemaining(
-            hasScrollBody: false, // ✅ Disable nested scrolling
+            hasScrollBody: false,
             child: ProductsScreen(),
           ),
         ],

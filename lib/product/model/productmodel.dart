@@ -29,6 +29,7 @@ class ProductEdge {
 class ProductNodeModel {
   final String id;
   final String title;
+  final String handle;
   final String description;
   final ProductImage? images;
   final ProductVariant? variants;
@@ -37,6 +38,7 @@ class ProductNodeModel {
     required this.id,
     required this.title,
     required this.description,
+    required this.handle,
     this.images,
     this.variants,
   });
@@ -44,6 +46,7 @@ class ProductNodeModel {
   ProductNodeModel.fromJson(Map<String, dynamic> json)
       : id = json['id'] ?? '',
         title = json['title'] ?? '',
+         handle = json['handle'] ?? '',
         description = json['description'] ?? '',
         images = json['images'] != null
             ? ProductImage.fromJson(json['images'])

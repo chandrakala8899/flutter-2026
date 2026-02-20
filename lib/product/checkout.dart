@@ -2,7 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/product/model/cartmmodel.dart';
 import 'package:flutter_learning/product/model/productmodel.dart';
-import 'production_api.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'product_service.dart/production_api.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final ProductNodeModel product; // For main UI display
@@ -73,7 +74,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }).toList();
 
       final request = CartCreateRequest(items: cartItems);
-      await ProductApiService.createCart(request);
+            final prefs = await SharedPreferences.getInstance();
+      String? email = prefs.getString("userEmail");
+      await ProductApiService.createCart(request,email);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

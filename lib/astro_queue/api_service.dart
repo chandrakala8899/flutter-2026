@@ -1,5 +1,8 @@
 // queue/api_service.dart
 import 'dart:convert';
+import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
+import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+import 'package:flutter_learning/astro_queue/model/session_request_model.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,20 +55,27 @@ class ApiService {
     print("✅ User stored: ${user.name}");
   }
 
-  static Future<UserModel?> getAllUsers() async {
+  static Future<List<UserModel>> getAllUsers() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final userJson = prefs.getString('user_json');
+      final response = await http.get(
+        Uri.parse("$baseUrl/api/login/get-all"),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      );
 
-      if (userJson != null) {
-        final jsonData = jsonDecode(userJson);
-        return UserModel.fromStorageJson(
-            jsonData); // ✅ Converts back from String role
+      print("Status Code: ${response.statusCode}");
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+
+        return data.map((json) => UserModel.fromLoginJson(json)).toList();
+      } else {
+        throw Exception("Failed to load users");
       }
-      return null;
     } catch (e) {
-      print("❌ Error loading user: $e");
-      return null;
+      print("API ERROR: $e");
+      rethrow;
     }
   }
 
@@ -92,6 +102,54 @@ class ApiService {
       }
     } catch (e) {
       rethrow;
+    }
+  }
+
+  static Future<UserModel?> getLoggedInUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userJson = prefs.getString('user_json');
+
+    if (userJson != null) {
+      return UserModel.fromStorageJson(jsonDecode(userJson));
+    }
+    return null;
+  }
+
+  static Future<ConsultationSessionResponse?> createSession({
+    required ConsultationSessionRequest request,
+  }) async {
+    try {
+      final uri = Uri.parse("${baseUrl}/api/sessions/create");
+
+      final response = await http.post(
+        uri,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(request.toJson()),
+      );
+
+      print("CREATE SESSION STATUS: ${response.statusCode}");
+      print("CREATE SESSION BODY: ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.body == "Request has been sent") {
+          // Fallback for plain text response
+          print("✅ Plain text success response");
+          return null; // No session data, but success
+        }
+
+        final data = jsonDecode(response.body);
+        if (data is Map<String, dynamic>) {
+          print("✅ Full session response received");
+          return ConsultationSessionResponse.fromJson(data);
+        }
+        return null;
+      } else {
+        print("Failed to create session: ${response.statusCode}");
+        return null;
+      }
+    } catch (e) {
+      print("Error creating session: $e");
+      return null;
     }
   }
 }

@@ -1,5 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_learning/colors.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 class CheckoutWebView extends StatefulWidget {
   final String checkoutUrl;
@@ -18,15 +21,30 @@ class _CheckoutWebViewState extends State<CheckoutWebView> {
   void initState() {
     super.initState();
 
+    // 🔥 IMPORTANT FOR ANDROID
+    if (Platform.isAndroid) {
+      WebViewPlatform.instance = AndroidWebViewPlatform();
+    }
+
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.white)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) {
+          onPageStarted: (url) {
+            print("Started: $url");
             setState(() => isPageLoading = true);
           },
-          onPageFinished: (_) {
+          onPageFinished: (url) {
+            print("Finished: $url");
             setState(() => isPageLoading = false);
+          },
+          onWebResourceError: (error) {
+            print("WebView Error: ${error.description}");
+          },
+          onNavigationRequest: (request) {
+            print("Navigating to: ${request.url}");
+            return NavigationDecision.navigate;
           },
         ),
       )
@@ -37,14 +55,8 @@ class _CheckoutWebViewState extends State<CheckoutWebView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          "Checkout",
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: Colors.deepPurple,
-        iconTheme: const IconThemeData(
-          color: Colors.white, // 👈 Back arrow color
-        ),
+        title: const Text("Checkout"),
+        backgroundColor: primaryColor,
       ),
       body: Stack(
         children: [

@@ -12,7 +12,6 @@ dependencies:
   flutter:
     sdk: flutter
   provider: ^6.1.2
-  web_socket_channel: ^2.4.0
   uuid: ^4.3.3
   google_fonts: ^6.1.0
   cached_network_image: ^3.3.0
@@ -22,6 +21,16 @@ dependencies:
   get: ^4.7.2
   shared_preferences: ^2.5.4
   url_launcher: ^6.3.2
+  geolocator: ^10.1.0
+  geocoding: ^2.1.1
+  permission_handler: ^11.0.1
+  agora_rtc_engine: ^6.3.2
+  socket_io_client: ^2.0.3+1
+  web_socket_channel: ^2.4.0
+  rename: ^3.1.0
+  webview_flutter_android: ^4.10.11
+  webview_flutter_wkwebview: ^3.23.6
+
 
 dev_dependencies:
   flutter_test:

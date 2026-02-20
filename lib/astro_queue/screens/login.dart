@@ -106,12 +106,12 @@ class _LoginScreenState extends State<LoginScreen> {
       body: Container(
         width: double.infinity,
         decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xff6A11CB), Color(0xff2575FC)],
-          ),
-        ),
+            // gradient: LinearGradient(
+            //   begin: Alignment.topLeft,
+            //   end: Alignment.bottomRight,
+            //   colors: [Color(0xff6A11CB), Color(0xff2575FC)],
+            // ),
+            ),
         child: SafeArea(
           child: SingleChildScrollView(
             // ✅ Keyboard-safe padding

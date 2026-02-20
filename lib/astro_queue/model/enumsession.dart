@@ -14,4 +14,28 @@ class SessionModel {
     required this.practitioner,
     required this.status,
   });
+
+  factory SessionModel.fromJson(Map<String, dynamic> json) {
+    return SessionModel(
+      id: json['id'].toString(),
+      customer: UserModel.fromLoginJson(json['customer']),
+      practitioner: UserModel.fromLoginJson(json['Practioner']),
+      status: _mapStatus(json['status']),
+    );
+  }
+
+  static SessionStatus _mapStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'waiting':
+        return SessionStatus.waiting;
+      case 'called':
+        return SessionStatus.called;
+      case 'inprogress':
+        return SessionStatus.inProgress;
+      case 'completed':
+        return SessionStatus.completed;
+      default:
+        return SessionStatus.created;
+    }
+  }
 }

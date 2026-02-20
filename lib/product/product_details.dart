@@ -1,8 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_learning/product/cartscreen.dart';
+import 'package:flutter_learning/colors.dart';
+import 'package:flutter_learning/product/screens/cartscreen.dart';
 import 'package:flutter_learning/product/model/productmodel.dart';
-import 'production_api.dart';
 
 class ProductDetailScreen extends StatefulWidget {
   final ProductNodeModel product;
@@ -30,9 +30,9 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
               : widget.product.title,
           style: const TextStyle(color: Colors.white, fontSize: 18),
         ),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: primaryColor,
         iconTheme: const IconThemeData(
-          color: Colors.white, 
+          color: Colors.white,
         ),
         elevation: 0,
         actions: [
@@ -67,11 +67,11 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                             width: double.infinity,
                             placeholder: (context, url) => Container(
                               color: Colors.grey[100],
-                              child: const Center(
+                              child: Center(
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                    Colors.deepPurple,
+                                    primaryColor,
                                   ),
                                 ),
                               ),
@@ -99,12 +99,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         child: Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                Colors.green.shade600,
-                                Colors.green.shade400
-                              ],
-                            ),
+                            color: primaryColor,
                             borderRadius: BorderRadius.circular(30),
                           ),
                           child: const Icon(
@@ -134,13 +129,6 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               fontWeight: FontWeight.bold,
                               color: Colors.black,
                               height: 1.1,
-                              shadows: [
-                                Shadow(
-                                  offset: const Offset(2, 2),
-                                  blurRadius: 6,
-                                  color: Colors.black38,
-                                ),
-                              ],
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -150,11 +138,12 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               vertical: 8,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.amber[50],
+                              color: Colors.white,
                               borderRadius: BorderRadius.circular(25),
-                              border: Border.all(color: Colors.amber.shade300),
+                              border: Border.all(
+                                  color: primaryColor.withOpacity(0.5)),
                             ),
-                            child: const Row(
+                            child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(Icons.star, color: Colors.amber, size: 20),
@@ -163,7 +152,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                                   "4.8 (1,234 reviews)",
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.deepPurple,
+                                    color: primaryColor,
                                     fontSize: 14,
                                   ),
                                 ),
@@ -209,9 +198,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                               width: 5,
                               height: 16,
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [Colors.deepPurple, Colors.purple],
-                                ),
+                                color: primaryColor,
                                 borderRadius: BorderRadius.circular(3),
                               ),
                             ),
@@ -261,7 +248,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: SizedBox(
                     width: double.infinity,
-                    height: 38,
+                    height: 42,
                     child: ElevatedButton.icon(
                       onPressed: () {
                         // ✅ Navigate to CartScreen with CURRENT product only
@@ -287,12 +274,10 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
+                        backgroundColor: primaryColor,
                         foregroundColor: Colors.white,
-                        elevation: 12,
-                        shadowColor: Colors.deepPurple.withOpacity(0.5),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(25),
+                          borderRadius: BorderRadius.circular(6),
                         ),
                       ),
                     ),

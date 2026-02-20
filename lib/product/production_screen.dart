@@ -1,10 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_learning/product/cartscreen.dart';
+import 'package:flutter_learning/colors.dart';
+import 'package:flutter_learning/product/screens/cartscreen.dart';
 import 'package:flutter_learning/product/model/cartmmodel.dart';
 import 'package:flutter_learning/product/model/productmodel.dart';
+import 'package:flutter_learning/product/screens/shopifypdpview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'product_details.dart';
-import 'production_api.dart';
+import 'product_service.dart/production_api.dart';
 
 class ProductsScreen extends StatefulWidget {
   const ProductsScreen({super.key});
@@ -66,14 +69,20 @@ class _ProductsScreenState extends State<ProductsScreen> {
     try {
       final cartItems = selectedProducts.map((product) {
         final variantEdges = product.variants?.edges;
-        final variantId = variantEdges?.isNotEmpty == true
-            ? variantEdges!.first.node!.id
-            : product.id;
-        return CartItemRequest(variantId: variantId, quantity: 1);
+        if (variantEdges?.isNotEmpty == true) {
+          return CartItemRequest(
+            variantId: variantEdges!.first.node!.id,
+            quantity: 1,
+          );
+        } else {
+          throw Exception("Product '${product.title}' has no variant ID!");
+        }
       }).toList();
 
       final request = CartCreateRequest(items: cartItems);
-      await ProductApiService.createCart(request);
+      final prefs = await SharedPreferences.getInstance();
+      String? email = prefs.getString("email");
+      await ProductApiService.createCart(request, email);
 
       if (!mounted) return;
 
@@ -95,8 +104,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: Colors.white,
       appBar: AppBar(
+        backgroundColor: Colors.white,
         title: Text(
           "Spiritual Products",
           style: const TextStyle(
@@ -105,19 +115,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
             fontSize: 18,
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.black),
-            onPressed: fetchProducts,
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: fetchProducts,
-        color: Colors.deepPurple,
+        color: primaryColor,
         child: isLoading
-            ? const Center(
-                child: CircularProgressIndicator(color: Colors.deepPurple))
+            ? Center(child: CircularProgressIndicator(color: primaryColor))
             : error != null
                 ? SingleChildScrollView(child: _buildErrorWidget())
                 : products.isEmpty
@@ -133,14 +136,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
   // All other methods unchanged...
   Widget _buildCartFAB() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
       child: Container(
         constraints: const BoxConstraints(maxWidth: 320),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.green.shade600, Colors.green.shade400],
-          ),
+          color: primaryColor,
           borderRadius: BorderRadius.circular(30),
         ),
         child: Row(
@@ -164,7 +165,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
               onPressed: selectedProducts.isNotEmpty ? _showCartScreen : null,
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.white,
-                foregroundColor: Colors.green.shade700,
+                foregroundColor: primaryColor,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
                 shape: RoundedRectangleBorder(
@@ -172,7 +173,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                 minimumSize: const Size(60, 30),
               ),
               child: const Text(
-                "VIEW",
+                "view",
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
               ),
             ),
@@ -219,7 +220,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
             icon: const Icon(Icons.refresh),
             label: const Text("Retry"),
             style: FilledButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
+              backgroundColor: primaryColor,
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
             ),
           ),
@@ -276,12 +277,20 @@ class _ProductsScreenState extends State<ProductsScreen> {
   Widget _buildProductCard(ProductNodeModel product, bool isSelected) {
     return GestureDetector(
       onTap: () {
+        // Navigator.push(
+        //   context,
+        //   MaterialPageRoute(
+        //     builder: (context) => ProductDetailScreen(
+        //       product: product,
+        //       onAddToCart: () => _toggleProduct(product),
+        //     ),
+        //   ),
+        // );
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ProductDetailScreen(
-              product: product,
-              onAddToCart: () => _toggleProduct(product),
+            builder: (_) => ShopifyPdpScreen(
+              handle: product.handle,
             ),
           ),
         );
@@ -292,16 +301,9 @@ class _ProductsScreenState extends State<ProductsScreen> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? Colors.deepPurple.shade400 : Colors.transparent,
+            color: isSelected ? primaryColor : Colors.transparent,
             width: isSelected ? 2 : 0,
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -319,7 +321,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     width: double.infinity,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => Container(
-                      height: 120,
+                      height: 100,
                       color: Colors.grey.shade100,
                       child: const Center(
                         child: CircularProgressIndicator(strokeWidth: 2),
@@ -342,7 +344,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(4), // ← SMALLER badge
                         decoration: BoxDecoration(
-                          color: Colors.deepPurple.shade600,
+                          color: Color(0xFFF1F5F53),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -367,7 +369,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                   children: [
                     // Title - SINGLE LINE ONLY
                     SizedBox(
-                      height: 18, // ← FIXED HEIGHT (FIX #3)
+                      height: 12, // ← FIXED HEIGHT (FIX #3)
                       child: Text(
                         product.title,
                         maxLines: 1,
@@ -379,7 +381,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 3), // ← MINIMAL spacing
+                    const SizedBox(height: 2), // ← MINIMAL spacing
 
                     // Price + Rating - ULTRA COMPACT
                     Row(
@@ -390,7 +392,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             style: const TextStyle(
                               fontSize: 13.5, // ← SMALLER
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF7B1FA2),
+                              color: Colors.black,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -401,21 +403,19 @@ class _ProductsScreenState extends State<ProductsScreen> {
                             horizontal: 5, // ← TIGHTER
                             vertical: 2,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.shade400,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
+                          decoration: BoxDecoration(),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.star, color: Colors.white, size: 11),
+                              Icon(Icons.star,
+                                  color: Color(0xFFF1F5F53), size: 14),
                               SizedBox(width: 1),
                               Text(
                                 "4.8",
                                 style: TextStyle(
-                                  fontSize: 10.5,
+                                  fontSize: 12,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: Colors.black,
                                 ),
                               ),
                             ],
@@ -428,13 +428,12 @@ class _ProductsScreenState extends State<ProductsScreen> {
                     // Button - SMALLEST POSSIBLE
                     SizedBox(
                       width: double.infinity,
-                      height: 24, // ← REDUCED to 32px (FIX #4)
+                      height: 32, // ← REDUCED to 32px (FIX #4)
                       child: ElevatedButton(
                         onPressed: () => _toggleProduct(product),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: isSelected
-                              ? Colors.green.shade600
-                              : const Color(0xFF7B1FA2),
+                          backgroundColor:
+                              isSelected ? Color(0xFFF1F5F53) : primaryColor,
                           foregroundColor: Colors.white,
                           elevation: 0,
                           padding: EdgeInsets.zero,
@@ -445,7 +444,7 @@ class _ProductsScreenState extends State<ProductsScreen> {
                         child: Text(
                           isSelected ? "SELECTED" : "ADD",
                           style: const TextStyle(
-                            fontSize: 11.5, // ← SMALLEST font
+                            fontSize: 12, // ← SMALLEST font
                             fontWeight: FontWeight.w600,
                           ),
                         ),
