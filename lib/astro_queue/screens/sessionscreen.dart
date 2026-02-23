@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:http/http.dart' as http;
@@ -44,10 +43,14 @@ class _SessionScreenState extends State<SessionScreen>
   final TextEditingController _messageController = TextEditingController();
   final List<String> _messages = [];
 
-  late String _channelName;
-  late int _uid;
+  // Hardcoded channel as requested
+  static const String _channelName = "astro_channel_123";
 
-  static const String _appId = "8dd43ad4ed32475c914486f4c70bb05d";
+  // Fixed UIDs for testing (you can make dynamic later)
+  static const int _uidCustomer = 1001;
+  static const int _uidPractitioner = 1002;
+
+  static const String _appId = "1a799cf30b064aabbd16218fa05b4014";
 
   bool _isStartingCall = false;
   String? _errorMessage;
@@ -64,27 +67,21 @@ class _SessionScreenState extends State<SessionScreen>
         Tween<double>(begin: 0.9, end: 1.1).animate(_pulseController);
     _pulseController.repeat(reverse: true);
 
-    // ──────────────────────────────────────────────
-    // TEMPORARY TEST VALUES — change these to match your backend
-    // Once it works → remove hardcoding and fix backend to use query params
-    // ──────────────────────────────────────────────
-    _channelName =
-        widget.channelName ?? "test_channel_1"; // ← most common test name
-    _uid = widget.isCustomer ? 1001 : 1002; // ← common test UIDs
-
-    // Alternative test values — uncomment if above doesn't work
-    // _channelName = "153";
-    // _uid = widget.isCustomer ? 1000000 : 2000000;
-
     debugPrint(
-      "SessionScreen init → Channel: $_channelName | UID: $_uid | Role: ${widget.isCustomer ? 'Customer' : 'Practitioner'}",
+      "SessionScreen init → Channel: $_channelName | "
+      "UID: ${widget.isCustomer ? _uidCustomer : _uidPractitioner} | "
+      "Role: ${widget.isCustomer ? 'Customer' : 'Practitioner'}",
     );
   }
 
   Future<String> _fetchAgoraToken() async {
+    final uid = widget.isCustomer ? _uidCustomer : _uidPractitioner;
+
     try {
+      // FIXED: Correct URL – use channel and uid properly
       final url =
-          "http://localhost:16679/api/agora/token?channelName=$_channelName&uid=$_uid";
+          "http://localhost:16679/api/agora/token?channelName=$_channelName&uid=$uid";
+
       debugPrint("Fetching Agora token → $url");
 
       final response = await http.get(Uri.parse(url)).timeout(
@@ -100,25 +97,22 @@ class _SessionScreenState extends State<SessionScreen>
       if (response.statusCode == 200) {
         final token = response.body.trim();
 
-        if (token.isEmpty) {
-          throw Exception("Server returned empty token");
-        }
+        if (token.isEmpty) throw Exception("Empty token from server");
 
         if (!token.startsWith('007')) {
           debugPrint(
-              "Warning: Token does not start with '007' — possibly invalid format");
+              "Warning: Token does not start with '007' (not v2 format)");
         }
 
         debugPrint("Token received successfully (length: ${token.length})");
         return token;
       } else {
         throw Exception(
-          "Token server error: ${response.statusCode} - ${response.body}",
-        );
+            "Token server error: ${response.statusCode} - ${response.body}");
       }
     } catch (e) {
       debugPrint("Token fetch failed: $e");
-      rethrow;
+      throw Exception("Failed to fetch token: $e");
     }
   }
 
@@ -129,7 +123,6 @@ class _SessionScreenState extends State<SessionScreen>
     setState(() {});
 
     try {
-      // Request permissions
       final statuses =
           await [Permission.camera, Permission.microphone].request();
 
@@ -154,8 +147,7 @@ class _SessionScreenState extends State<SessionScreen>
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
             debugPrint(
-              "JOIN SUCCESS → Channel: ${connection.channelId} | Local UID: ${connection.localUid}",
-            );
+                "JOIN SUCCESS → Channel: ${connection.channelId} | UID: ${connection.localUid}");
             setState(() {
               _localUserJoined = true;
               _isInCall = true;
@@ -171,7 +163,8 @@ class _SessionScreenState extends State<SessionScreen>
           },
           onUserOffline: (RtcConnection connection, int remoteUid,
               UserOfflineReasonType reason) {
-            debugPrint("REMOTE OFFLINE → UID: $remoteUid | Reason: $reason");
+            debugPrint(
+                "REMOTE USER OFFLINE → UID: $remoteUid | Reason: $reason");
             if (_remoteUid == remoteUid) {
               setState(() {
                 _remoteUid = null;
@@ -187,26 +180,12 @@ class _SessionScreenState extends State<SessionScreen>
             RemoteVideoStateReason reason,
             int elapsed,
           ) {
-            debugPrint(
-              "Remote video state changed → UID: $remoteUid | State: $state",
-            );
+            debugPrint("Remote video state → UID: $remoteUid | State: $state");
             if (_remoteUid == remoteUid) {
               setState(() {
                 _remoteVideoPublished =
                     state == RemoteVideoState.remoteVideoStateDecoding;
               });
-            }
-          },
-          onTokenPrivilegeWillExpire:
-              (RtcConnection connection, String token) async {
-            debugPrint("Token expiring → renewing...");
-            try {
-              final newToken = await _fetchAgoraToken();
-              await _engine?.renewToken(newToken);
-              debugPrint("Token renewed successfully");
-            } catch (e) {
-              debugPrint("Token renew failed: $e");
-              setState(() => _errorMessage = "Token renewal failed");
             }
           },
           onError: (ErrorCodeType err, String msg) {
@@ -220,16 +199,25 @@ class _SessionScreenState extends State<SessionScreen>
 
       await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
-      final token = await _fetchAgoraToken();
+      // ──────────────────────────────────────────────
+      // TEMPORARY HARDCODED TOKEN – PASTE YOUR GENERATED TOKEN HERE
+      // Get it from: https://www.agora.io/en/tools/token-generator/
+      // Channel: astro_channel_123
+      // UID: 1001 (customer) or 1002 (practitioner)
+      // Role: Publisher
+      // ──────────────────────────────────────────────
+      final token =
+          "007eJxTYGDeLj3zavalwN1//HeejmVdtG6jndjmTnmlRi/l95PFzxxUYDBMNLe0TE4zNkgyMDNJTExKSjE0MzK0SEs0ME0yMTA00ZGZk9kQyMiQ0F/MyMgAgSC+IENicUlRfnxyRmJeXmpOvKGRMQMDAPVdI0k="; // ← PASTE YOUR REAL TOKEN HERE
 
-      // ──────────────────────────────────────────────
-      // Very important debug output — copy this block from logs
-      // ──────────────────────────────────────────────
+      // Optional: uncomment next line if you want to see what token is used
+      // debugPrint("Using temporary hardcoded token: ${token.substring(0, 20)}...");
+
       debugPrint("╔════════════════════════════════════════════╗");
       debugPrint("║           Joining Agora Channel            ║");
       debugPrint("╠════════════════════════════════════════════╣");
-      debugPrint("║ Channel ID   : $_channelName");
-      debugPrint("║ UID          : $_uid");
+      debugPrint("║ Channel      : $_channelName");
+      debugPrint(
+          "║ UID          : ${widget.isCustomer ? _uidCustomer : _uidPractitioner}");
       debugPrint("║ Token length : ${token.length}");
       debugPrint(
           "║ Token preview: ${token.substring(0, 20)}...${token.substring(token.length - 10)}");
@@ -238,7 +226,7 @@ class _SessionScreenState extends State<SessionScreen>
       await _engine!.joinChannel(
         token: token,
         channelId: _channelName,
-        uid: _uid,
+        uid: widget.isCustomer ? _uidCustomer : _uidPractitioner,
         options: const ChannelMediaOptions(
           publishCameraTrack: true,
           publishMicrophoneTrack: true,
@@ -248,7 +236,8 @@ class _SessionScreenState extends State<SessionScreen>
     } catch (e) {
       debugPrint("Failed to start call: $e");
       setState(() {
-        _errorMessage = e.toString().replaceFirst('Exception: ', '').trim();
+        _errorMessage =
+            "Failed to start call: ${e.toString().replaceFirst('Exception: ', '').trim()}";
       });
       await _cleanupEngine();
     } finally {
@@ -330,15 +319,12 @@ class _SessionScreenState extends State<SessionScreen>
                     borderRadius: BorderRadius.circular(12),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                          horizontal: 16, vertical: 12),
                       child: Text(
                         _errorMessage!,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
+                            color: Colors.white, fontWeight: FontWeight.w500),
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   ),
@@ -362,6 +348,7 @@ class _SessionScreenState extends State<SessionScreen>
       child: SafeArea(
         child: Center(
           child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -376,15 +363,12 @@ class _SessionScreenState extends State<SessionScreen>
                       gradient: LinearGradient(
                         colors: [
                           Colors.white.withOpacity(0.25),
-                          Colors.white.withOpacity(0.1),
+                          Colors.white.withOpacity(0.1)
                         ],
                       ),
                     ),
-                    child: const Icon(
-                      Icons.person,
-                      size: 80,
-                      color: Colors.white,
-                    ),
+                    child:
+                        const Icon(Icons.person, size: 80, color: Colors.white),
                   ),
                 ),
                 const SizedBox(height: 40),
@@ -393,10 +377,9 @@ class _SessionScreenState extends State<SessionScreen>
                       ? "Connecting to Practitioner"
                       : "Waiting for Customer",
                   style: const TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 16),
@@ -406,9 +389,7 @@ class _SessionScreenState extends State<SessionScreen>
                           "Premium Practitioner")
                       : (widget.session?.customer?.name ?? "Customer"),
                   style: TextStyle(
-                    fontSize: 20,
-                    color: Colors.white.withOpacity(0.9),
-                  ),
+                      fontSize: 20, color: Colors.white.withOpacity(0.9)),
                 ),
                 const SizedBox(height: 60),
                 ElevatedButton.icon(
@@ -422,12 +403,9 @@ class _SessionScreenState extends State<SessionScreen>
                     backgroundColor: Colors.green,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 40,
-                      vertical: 18,
-                    ),
+                        horizontal: 40, vertical: 18),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
+                        borderRadius: BorderRadius.circular(30)),
                   ),
                 ),
               ],
@@ -457,30 +435,19 @@ class _SessionScreenState extends State<SessionScreen>
               children: [
                 if (_remoteUserJoined) ...[
                   const CircularProgressIndicator(
-                    color: Colors.white,
-                    strokeWidth: 6,
-                  ),
+                      color: Colors.white, strokeWidth: 6),
                   const SizedBox(height: 24),
-                  const Text(
-                    "Waiting for video...",
-                    style: TextStyle(color: Colors.white, fontSize: 22),
-                  ),
+                  const Text("Waiting for video...",
+                      style: TextStyle(color: Colors.white, fontSize: 22)),
                 ] else ...[
-                  const Icon(
-                    Icons.videocam_off,
-                    size: 120,
-                    color: Colors.white54,
-                  ),
+                  const Icon(Icons.videocam_off,
+                      size: 120, color: Colors.white54),
                   const SizedBox(height: 24),
-                  const Text(
-                    "Waiting for other participant...",
-                    style: TextStyle(color: Colors.white, fontSize: 24),
-                  ),
+                  const Text("Waiting for other participant...",
+                      style: TextStyle(color: Colors.white, fontSize: 24)),
                   const SizedBox(height: 12),
-                  Text(
-                    "Channel: $_channelName",
-                    style: const TextStyle(color: Colors.white70),
-                  ),
+                  Text("Channel: $_channelName",
+                      style: const TextStyle(color: Colors.white70)),
                 ],
               ],
             ),
@@ -489,52 +456,43 @@ class _SessionScreenState extends State<SessionScreen>
           Positioned(
             top: 60,
             right: 16,
-            child: GestureDetector(
-              onTap: () {},
-              child: Container(
-                width: 140,
-                height: 180,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white70, width: 3),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
+            child: Container(
+              width: 140,
+              height: 180,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white70, width: 3),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
                       color: Colors.black.withOpacity(0.4),
                       blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: _videoMuted
-                      ? Container(
-                          color: Colors.grey[900],
-                          child: const Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.videocam_off,
-                                  color: Colors.white70,
-                                  size: 40,
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  "Camera Off",
-                                  style: TextStyle(color: Colors.white70),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : AgoraVideoView(
-                          controller: VideoViewController(
-                            rtcEngine: _engine!,
-                            canvas: const VideoCanvas(uid: 0),
+                      offset: const Offset(0, 4)),
+                ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: _videoMuted
+                    ? Container(
+                        color: Colors.grey[900],
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.videocam_off,
+                                  color: Colors.white70, size: 40),
+                              SizedBox(height: 8),
+                              Text("Camera Off",
+                                  style: TextStyle(color: Colors.white70)),
+                            ],
                           ),
                         ),
-                ),
+                      )
+                    : AgoraVideoView(
+                        controller: VideoViewController(
+                          rtcEngine: _engine!,
+                          canvas: const VideoCanvas(uid: 0),
+                        ),
+                      ),
               ),
             ),
           ),
@@ -556,10 +514,9 @@ class _SessionScreenState extends State<SessionScreen>
         borderRadius: BorderRadius.circular(30),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 8,
+              offset: const Offset(0, 4)),
         ],
       ),
       child: Row(
@@ -575,16 +532,11 @@ class _SessionScreenState extends State<SessionScreen>
           Text(
             _currentStatus == SessionStatus.inProgress ? "LIVE" : "WAITING",
             style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-            ),
+                color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const Spacer(),
           Text(
-            _remoteUserJoined
-                ? "Connected"
-                : "Channel: ${_channelName.substring(0, _channelName.length.clamp(0, 12))}...",
+            _remoteUserJoined ? "Connected" : "Channel: $_channelName",
             style: const TextStyle(color: Colors.white70),
           ),
         ],
@@ -617,9 +569,7 @@ class _SessionScreenState extends State<SessionScreen>
                       alignment: Alignment.centerRight,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
+                            horizontal: 16, vertical: 10),
                         decoration: BoxDecoration(
                           color: Colors.blue.withOpacity(0.7),
                           borderRadius: BorderRadius.circular(20),
@@ -650,9 +600,7 @@ class _SessionScreenState extends State<SessionScreen>
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 14,
-                    ),
+                        horizontal: 20, vertical: 14),
                   ),
                   onSubmitted: (_) => _sendMessage(),
                 ),
