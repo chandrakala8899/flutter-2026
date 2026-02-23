@@ -1,116 +1,164 @@
-// lib/services/stomp_service.dart
-import 'dart:convert';
-import 'dart:typed_data';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as status;
+// import 'dart:async';
+// import 'dart:convert';
+// import 'dart:typed_data';
+// import 'package:web_socket_channel/web_socket_channel.dart';
+// import 'package:web_socket_channel/status.dart' as status;
 
-class StompService {
-  
-  WebSocketChannel? _channel;
-  final String baseUrl;
-  final int consultantId;
+// class StompClient {
+//   WebSocketChannel? _channel;
 
-  Function(Map<String, dynamic>)? onQueueUpdate;
-  Function(Map<String, dynamic>)? onSessionUpdate;
-  bool _connected = false;
+//   final int customerId;
+//   final int consultantId;
 
-  StompService({required this.baseUrl, required this.consultantId});
+//   Function()? onConnect;
+//   Function()? onDisconnect;
+//   Function(Map<String, dynamic>)? onCustomerUpdate;
+//   Function(Map<String, dynamic>)? onQueueUpdate;
+//   Function(String)? onError;
 
-  void connect() {
-    try {
-      final wsUrl = baseUrl.replaceAll('http', 'ws') + '/ws/websocket';
-      _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
+//   bool _connected = false;
+//   Timer? _heartbeatTimer;
 
-      _channel!.stream.listen(
-        (data) => _handleMessage(data),
-        onError: (error) => print('STOMP Error: $error'),
-        onDone: () {
-          print('STOMP Disconnected');
-          _connected = false;
-        },
-      );
+//   StompClient({
+//     required this.customerId,
+//     required this.consultantId,
+//   });
 
-      // Send STOMP CONNECT
-      _sendStompFrame('CONNECT',
-          {'accept-version': '1.1,1.0', 'heart-beat': '10000,10000'});
-    } catch (e) {
-      print('STOMP Connect Error: $e');
-    }
-  }
+//   bool get isConnected => _connected;
 
-  // ✅ FIXED: Proper method signature
-  void _sendStompFrame(String command, Map<String, String> headers,
-      [String? body]) {
-    final buffer = StringBuffer();
-    buffer.writeln(command);
+//   void connect() {
+//     if (_connected) return;
 
-    headers.forEach((key, value) {
-      buffer.writeln('$key:$value');
-    });
+//     try {
+//       // 🔥 CHANGE THIS BASED ON DEVICE
+//       final wsUrl = 'ws://10.0.2.2:16679/ws'; 
+//       print("🔌 Connecting to $wsUrl");
 
-    buffer.writeln('');
-    if (body != null) buffer.writeln(body);
-    buffer.writeln('\0'); // STOMP NULL terminator
+//       _channel = WebSocketChannel.connect(Uri.parse(wsUrl));
 
-    final frame = utf8.encode(buffer.toString());
-    _channel?.sink.add(frame);
-  }
+//       _channel!.stream.listen(
+//         (data) => _handleMessage(data),
+//         onError: (error) {
+//           _connected = false;
+//           onError?.call(error.toString());
+//           _stopHeartbeat();
+//         },
+//         onDone: () {
+//           _connected = false;
+//           onDisconnect?.call();
+//           _stopHeartbeat();
+//         },
+//       );
 
-  void _handleMessage(dynamic data) {
-    final message = utf8.decode(data is Uint8List ? data : [data]);
-    print('STOMP Raw: $message');
+//       _sendFrame('CONNECT', {
+//         'accept-version': '1.1,1.0',
+//         'heart-beat': '10000,10000',
+//       });
+//     } catch (e) {
+//       onError?.call(e.toString());
+//     }
+//   }
 
-    if (message.contains('CONNECTED')) {
-      print('✅ STOMP Connected!');
-      _connected = true;
-      _subscribeQueue();
-      _subscribeSession();
-      return;
-    }
+//   void _handleMessage(dynamic raw) {
+//     final bytes = raw is Uint8List ? raw : Uint8List.fromList(raw);
+//     final message = utf8.decode(bytes).trimRight();
 
-    // Parse MESSAGE frames
-    if (message.startsWith('MESSAGE')) {
-      final jsonStr = message
-          .split('\n')
-          .lastWhere((line) => line.isNotEmpty && !line.startsWith(':'));
-      try {
-        final data = json.decode(jsonStr);
-        _dispatchMessage(data);
-      } catch (e) {
-        print('JSON Parse Error: $e');
-      }
-    }
-  }
+//     final lines = message.split('\n');
+//     if (lines.isEmpty) return;
 
-  void _dispatchMessage(Map<String, dynamic> data) {
-    final destination = data['destination'] ?? '';
-    if (destination.contains('queue-update-$consultantId')) {
-      onQueueUpdate?.call(data);
-    } else if (destination.contains('session-update-$consultantId')) {
-      onSessionUpdate?.call(data);
-    }
-  }
+//     final command = lines.first.trim();
 
-  void _subscribeQueue() {
-    _sendStompFrame('SUBSCRIBE', {
-      'id': 'sub-queue-$consultantId',
-      'destination': '/topic/queue/$consultantId',
-    });
-  }
+//     if (command == 'CONNECTED') {
+//       _connected = true;
+//       onConnect?.call();
+//       _subscribe();
+//       _startHeartbeat();
+//       return;
+//     }
 
-  void _subscribeSession() {
-    _sendStompFrame('SUBSCRIBE', {
-      'id': 'sub-session-$consultantId',
-      'destination': '/topic/session/$consultantId',
-    });
-  }
+//     if (command != 'MESSAGE') return;
 
-  // ✅ FIXED: Disconnect only needs command (empty headers)
-  void disconnect() {
-    if (_connected) {
-      _sendStompFrame('DISCONNECT', {});
-    }
-    _channel?.sink.close(status.goingAway);
-    _connected = false;
-  }
-}
+//     int i = 1;
+//     while (i < lines.length && lines[i].trim().isNotEmpty) i++;
+
+//     final headers = <String, String>{};
+//     for (int j = 1; j < i; j++) {
+//       final line = lines[j];
+//       final idx = line.indexOf(':');
+//       if (idx > 0) {
+//         headers[line.substring(0, idx)] = line.substring(idx + 1);
+//       }
+//     }
+
+//     final body =
+//         lines.skip(i + 1).join('\n').replaceAll('\0', '').trim();
+
+//     if (body.isEmpty) return;
+
+//     final destination = headers['destination'] ?? '';
+//     final payload = jsonDecode(body);
+
+//     print("📨 DEST: $destination | DATA: $payload");
+
+//     if (destination.startsWith('/topic/customer/$customerId')) {
+//       onCustomerUpdate?.call(payload);
+//     } else if (destination.startsWith('/topic/queue/$consultantId')) {
+//       onQueueUpdate?.call(payload);
+//     }
+//   }
+
+//   void _subscribe() {
+//     // 🔥 Subscribe to customer updates
+//     _sendFrame('SUBSCRIBE', {
+//       'id': 'customer-$customerId',
+//       'destination': '/topic/customer/$customerId',
+//     });
+
+//     // 🔥 Subscribe to queue updates
+//     _sendFrame('SUBSCRIBE', {
+//       'id': 'queue-$consultantId',
+//       'destination': '/topic/queue/$consultantId',
+//     });
+//   }
+
+//   void _startHeartbeat() {
+//     _heartbeatTimer?.cancel();
+//     _heartbeatTimer =
+//         Timer.periodic(const Duration(seconds: 10), (_) {
+//       if (_connected) {
+//         _channel?.sink.add('\n');
+//       }
+//     });
+//   }
+
+//   void _stopHeartbeat() {
+//     _heartbeatTimer?.cancel();
+//   }
+
+//   void _sendFrame(String command, Map<String, String> headers,
+//       [String? body]) {
+//     final buffer = StringBuffer();
+//     buffer.writeln(command);
+
+//     headers.forEach((key, value) {
+//       buffer.writeln('$key:$value');
+//     });
+
+//     buffer.writeln('');
+
+//     if (body != null) buffer.writeln(body);
+
+//     buffer.write('\0');
+
+//     _channel?.sink.add(buffer.toString());
+//   }
+
+//   void disconnect() {
+//     if (_connected) {
+//       _sendFrame('DISCONNECT', {});
+//     }
+//     _channel?.sink.close(status.goingAway);
+//     _stopHeartbeat();
+//     _connected = false;
+//   }
+// }

@@ -1,5 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
@@ -7,8 +10,14 @@ import 'package:flutter_learning/astro_queue/model/enumsession.dart';
 class SessionScreen extends StatefulWidget {
   final ConsultationSessionResponse? session;
   final bool isCustomer;
+  final String? channelName;
 
-  const SessionScreen({super.key, this.session, required this.isCustomer});
+  const SessionScreen({
+    super.key,
+    this.session,
+    required this.isCustomer,
+    this.channelName,
+  });
 
   @override
   State<SessionScreen> createState() => _SessionScreenState();
@@ -17,59 +26,119 @@ class SessionScreen extends StatefulWidget {
 class _SessionScreenState extends State<SessionScreen>
     with TickerProviderStateMixin {
   RtcEngine? _engine;
+
   bool _isInCall = false;
   bool _localUserJoined = false;
   bool _remoteUserJoined = false;
+  bool _remoteVideoPublished = false;
+
   bool _micMuted = false;
   bool _videoMuted = false;
+
   int? _remoteUid;
   SessionStatus _currentStatus = SessionStatus.waiting;
-  List<String> messages = [];
-  final TextEditingController _messageController = TextEditingController();
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  static const String _appId = "8dd43ad4ed32475c914486f4c70bb05d";
+  final TextEditingController _messageController = TextEditingController();
+  final List<String> _messages = [];
+
   late String _channelName;
+  late int _uid;
+
+  static const String _appId = "8dd43ad4ed32475c914486f4c70bb05d";
+
+  bool _isStartingCall = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+
     _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
       vsync: this,
+      duration: const Duration(seconds: 2),
     );
-    _pulseAnimation = Tween<double>(begin: 0.9, end: 1.1).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
+    _pulseAnimation =
+        Tween<double>(begin: 0.9, end: 1.1).animate(_pulseController);
     _pulseController.repeat(reverse: true);
 
-    _channelName = "astro_${DateTime.now().millisecondsSinceEpoch}";
-    _initializeSession();
-    _startWaitingScreen();
+    // ──────────────────────────────────────────────
+    // TEMPORARY TEST VALUES — change these to match your backend
+    // Once it works → remove hardcoding and fix backend to use query params
+    // ──────────────────────────────────────────────
+    _channelName =
+        widget.channelName ?? "test_channel_1"; // ← most common test name
+    _uid = widget.isCustomer ? 1001 : 1002; // ← common test UIDs
+
+    // Alternative test values — uncomment if above doesn't work
+    // _channelName = "153";
+    // _uid = widget.isCustomer ? 1000000 : 2000000;
+
+    debugPrint(
+      "SessionScreen init → Channel: $_channelName | UID: $_uid | Role: ${widget.isCustomer ? 'Customer' : 'Practitioner'}",
+    );
   }
 
-  void _initializeSession() {
-    if (widget.session != null) {
-      _currentStatus = widget.session!.status ?? SessionStatus.waiting;
-      _channelName =
-          "astro_${widget.session!.consultant?.id ?? DateTime.now().millisecondsSinceEpoch}";
+  Future<String> _fetchAgoraToken() async {
+    try {
+      final url =
+          "http://localhost:16679/api/agora/token?channelName=$_channelName&uid=$_uid";
+      debugPrint("Fetching Agora token → $url");
+
+      final response = await http.get(Uri.parse(url)).timeout(
+            const Duration(seconds: 10),
+          );
+
+      debugPrint(
+        "Token response → Status: ${response.statusCode} | "
+        "Body length: ${response.body.length} | "
+        "Starts with: ${response.body.substring(0, response.body.length.clamp(0, 15))}...",
+      );
+
+      if (response.statusCode == 200) {
+        final token = response.body.trim();
+
+        if (token.isEmpty) {
+          throw Exception("Server returned empty token");
+        }
+
+        if (!token.startsWith('007')) {
+          debugPrint(
+              "Warning: Token does not start with '007' — possibly invalid format");
+        }
+
+        debugPrint("Token received successfully (length: ${token.length})");
+        return token;
+      } else {
+        throw Exception(
+          "Token server error: ${response.statusCode} - ${response.body}",
+        );
+      }
+    } catch (e) {
+      debugPrint("Token fetch failed: $e");
+      rethrow;
     }
   }
 
-  void _startWaitingScreen() {
-    // Stay in waiting screen initially
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) {
-        debugPrint("🎥 Starting Agora initialization...");
-        _initAgora();
-      }
-    });
-  }
+  Future<void> _startCall() async {
+    if (_isStartingCall) return;
+    _isStartingCall = true;
+    _errorMessage = null;
+    setState(() {});
 
-  Future<void> _initAgora() async {
     try {
-      await [Permission.camera, Permission.microphone].request();
+      // Request permissions
+      final statuses =
+          await [Permission.camera, Permission.microphone].request();
+
+      if (statuses[Permission.camera] != PermissionStatus.granted ||
+          statuses[Permission.microphone] != PermissionStatus.granted) {
+        throw Exception("Camera and/or Microphone permission denied");
+      }
+
+      await _cleanupEngine();
 
       _engine = createAgoraRtcEngine();
       await _engine!.initialize(const RtcEngineContext(
@@ -77,78 +146,170 @@ class _SessionScreenState extends State<SessionScreen>
         channelProfile: ChannelProfileType.channelProfileCommunication,
       ));
 
+      await _engine!.enableVideo();
+      await _engine!.enableLocalVideo(true);
+      await _engine!.startPreview();
+
       _engine!.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-            debugPrint("✅ Local user joined");
-            setState(() => _localUserJoined = true);
+            debugPrint(
+              "JOIN SUCCESS → Channel: ${connection.channelId} | Local UID: ${connection.localUid}",
+            );
+            setState(() {
+              _localUserJoined = true;
+              _isInCall = true;
+              _currentStatus = SessionStatus.inProgress;
+            });
           },
           onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-            debugPrint("✅ Practitioner joined: $remoteUid");
+            debugPrint("REMOTE USER JOINED → UID: $remoteUid");
             setState(() {
               _remoteUid = remoteUid;
               _remoteUserJoined = true;
-              _currentStatus = SessionStatus.inProgress;
-              _isInCall = true;
-              messages.add(
-                  "${widget.session?.consultant?.name ?? 'Practitioner'} joined the call!");
             });
           },
           onUserOffline: (RtcConnection connection, int remoteUid,
               UserOfflineReasonType reason) {
-            debugPrint("❌ Practitioner left");
-            setState(() {
-              _remoteUid = null;
-              _remoteUserJoined = false;
-              _currentStatus = SessionStatus.waiting;
-              messages.add("Practitioner left the call");
-            });
+            debugPrint("REMOTE OFFLINE → UID: $remoteUid | Reason: $reason");
+            if (_remoteUid == remoteUid) {
+              setState(() {
+                _remoteUid = null;
+                _remoteUserJoined = false;
+                _remoteVideoPublished = false;
+              });
+            }
+          },
+          onRemoteVideoStateChanged: (
+            RtcConnection connection,
+            int remoteUid,
+            RemoteVideoState state,
+            RemoteVideoStateReason reason,
+            int elapsed,
+          ) {
+            debugPrint(
+              "Remote video state changed → UID: $remoteUid | State: $state",
+            );
+            if (_remoteUid == remoteUid) {
+              setState(() {
+                _remoteVideoPublished =
+                    state == RemoteVideoState.remoteVideoStateDecoding;
+              });
+            }
+          },
+          onTokenPrivilegeWillExpire:
+              (RtcConnection connection, String token) async {
+            debugPrint("Token expiring → renewing...");
+            try {
+              final newToken = await _fetchAgoraToken();
+              await _engine?.renewToken(newToken);
+              debugPrint("Token renewed successfully");
+            } catch (e) {
+              debugPrint("Token renew failed: $e");
+              setState(() => _errorMessage = "Token renewal failed");
+            }
           },
           onError: (ErrorCodeType err, String msg) {
-            debugPrint("Agora Error: $err - $msg");
+            debugPrint("Agora SDK error → Code: $err | Message: $msg");
+            setState(() {
+              _errorMessage = "Agora SDK error: $err ($msg)";
+            });
           },
         ),
       );
 
-      await _engine!.enableVideo();
       await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
-      // Join channel to wait for practitioner
+      final token = await _fetchAgoraToken();
+
+      // ──────────────────────────────────────────────
+      // Very important debug output — copy this block from logs
+      // ──────────────────────────────────────────────
+      debugPrint("╔════════════════════════════════════════════╗");
+      debugPrint("║           Joining Agora Channel            ║");
+      debugPrint("╠════════════════════════════════════════════╣");
+      debugPrint("║ Channel ID   : $_channelName");
+      debugPrint("║ UID          : $_uid");
+      debugPrint("║ Token length : ${token.length}");
+      debugPrint(
+          "║ Token preview: ${token.substring(0, 20)}...${token.substring(token.length - 10)}");
+      debugPrint("╚════════════════════════════════════════════╝");
+
       await _engine!.joinChannel(
-        token: '',
+        token: token,
         channelId: _channelName,
-        uid: 0,
-        options: const ChannelMediaOptions(),
+        uid: _uid,
+        options: const ChannelMediaOptions(
+          publishCameraTrack: true,
+          publishMicrophoneTrack: true,
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
+        ),
       );
     } catch (e) {
-      debugPrint("❌ Agora Error: $e - Demo mode activated");
+      debugPrint("Failed to start call: $e");
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '').trim();
+      });
+      await _cleanupEngine();
+    } finally {
+      _isStartingCall = false;
+      if (mounted) setState(() {});
     }
   }
 
-  Future<void> _toggleMute() async {
+  Future<void> _cleanupEngine() async {
+    if (_engine == null) return;
+
+    try {
+      await _engine!.leaveChannel();
+      await _engine!.stopPreview();
+      await _engine!.release(sync: true);
+    } catch (e) {
+      debugPrint("Engine cleanup error: $e");
+    }
+    _engine = null;
+  }
+
+  Future<void> _leaveCall() async {
+    await _cleanupEngine();
+    setState(() {
+      _isInCall = false;
+      _localUserJoined = false;
+      _remoteUserJoined = false;
+      _remoteVideoPublished = false;
+      _remoteUid = null;
+      _currentStatus = SessionStatus.waiting;
+    });
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _toggleMic() async {
     if (_engine == null) return;
     await _engine!.muteLocalAudioStream(!_micMuted);
     setState(() => _micMuted = !_micMuted);
   }
 
-  Future<void> _toggleVideo() async {
+  Future<void> _toggleCamera() async {
     if (_engine == null) return;
     await _engine!.muteLocalVideoStream(!_videoMuted);
     setState(() => _videoMuted = !_videoMuted);
   }
 
-  Future<void> _leaveCall() async {
-    if (_engine == null) return;
-    await _engine!.leaveChannel();
-    if (mounted) Navigator.pop(context);
+  void _sendMessage() {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() {
+      _messages.insert(0, "You: $text");
+    });
+    _messageController.clear();
   }
 
   @override
   void dispose() {
-    _messageController.dispose();
+    _cleanupEngine();
     _pulseController.dispose();
-    _engine?.leaveChannel();
-    _engine?.release();
+    _messageController.dispose();
     super.dispose();
   }
 
@@ -157,24 +318,41 @@ class _SessionScreenState extends State<SessionScreen>
     return Scaffold(
       body: Stack(
         children: [
-          // Main Content
-          if (_remoteUserJoined && _isInCall) _buildLiveCallScreen(),
-          if (!_remoteUserJoined || !_isInCall)
-            _buildProfessionalWaitingScreen(),
-
-          // Status Bar (always visible)
-          Positioned(top: 50, left: 20, right: 20, child: _buildStatusBar()),
-
-          // Controls (only during call)
-          if (_remoteUserJoined && _isInCall) _buildProfessionalControls(),
+          _isInCall ? _buildLiveCallView() : _buildWaitingView(),
+          if (_errorMessage != null)
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Material(
+                    color: Colors.red.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Text(
+                        _errorMessage!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildProfessionalWaitingScreen() {
+  Widget _buildWaitingView() {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
@@ -182,302 +360,325 @@ class _SessionScreenState extends State<SessionScreen>
         ),
       ),
       child: SafeArea(
-        child: Column(
-          children: [
-            SizedBox(height: 100),
-            // Pulsing astrologer avatar
-            ScaleTransition(
-              scale: _pulseAnimation,
-              child: Container(
-                width: 150,
-                height: 150,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    Colors.white.withOpacity(0.2),
-                    Colors.white.withOpacity(0.1),
-                  ]),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white, width: 3),
-                ),
-                child: Icon(
-                  Icons.person,
-                  size: 80,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-            SizedBox(height: 40),
-
-            Text(
-              "Connecting to Astrologer",
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: 1.2,
-              ),
-            ),
-            SizedBox(height: 10),
-            Text(
-              widget.session?.consultant?.name ?? "Premium Astrologer",
-              style:
-                  TextStyle(fontSize: 20, color: Colors.white.withOpacity(0.9)),
-            ),
-            SizedBox(height: 60),
-
-            // Status Card
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: 40),
-              padding: EdgeInsets.all(30),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.white, Colors.white.withOpacity(0.9)],
-                ),
-                borderRadius: BorderRadius.circular(25),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 30,
-                    offset: Offset(0, 15),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.hourglass_empty, size: 50, color: Colors.orange),
-                  SizedBox(height: 20),
-                  Text(
-                    "WAITING",
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.orange[700]!,
-                      letterSpacing: 2,
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ScaleTransition(
+                  scale: _pulseAnimation,
+                  child: Container(
+                    width: 160,
+                    height: 160,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 4),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white.withOpacity(0.25),
+                          Colors.white.withOpacity(0.1),
+                        ],
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.person,
+                      size: 80,
+                      color: Colors.white,
                     ),
                   ),
-                  SizedBox(height: 15),
-                  Text(
-                    "Astrologer will join shortly\nShare channel: $_channelName",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 40),
+                Text(
+                  widget.isCustomer
+                      ? "Connecting to Practitioner"
+                      : "Waiting for Customer",
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
-                  SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.videocam, color: Colors.green, size: 20),
-                      SizedBox(width: 8),
-                      Text("Ready for Video Call",
-                          style: TextStyle(
-                              color: Colors.green[700],
-                              fontWeight: FontWeight.w600)),
-                    ],
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  widget.isCustomer
+                      ? (widget.session?.consultant?.name ??
+                          "Premium Practitioner")
+                      : (widget.session?.customer?.name ?? "Customer"),
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: Colors.white.withOpacity(0.9),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 60),
+                ElevatedButton.icon(
+                  onPressed: _isStartingCall ? null : _startCall,
+                  icon: const Icon(Icons.video_call, size: 28),
+                  label: Text(
+                    _isStartingCall ? "Connecting..." : "Start Video Call",
+                    style: const TextStyle(fontSize: 18),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: 18,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildLiveCallScreen() {
-    return Container(
-      color: Colors.black,
-      child: Stack(
-        children: [
-          // Remote Video (Full screen)
-          if (_remoteUid != null)
-            Center(
-              child: AgoraVideoView(
-                controller: VideoViewController.remote(
-                  rtcEngine: _engine!,
-                  canvas: VideoCanvas(uid: _remoteUid!),
-                  connection: RtcConnection(channelId: _channelName),
-                ),
-              ),
-            )
-          else
-            Container(
-              color: Colors.grey[900],
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.videocam, size: 80, color: Colors.white60),
-                    SizedBox(height: 20),
-                    Text("Astrologer Video",
-                        style: TextStyle(color: Colors.white, fontSize: 20)),
-                  ],
-                ),
-              ),
+  Widget _buildLiveCallView() {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (_remoteUid != null && _remoteVideoPublished)
+          AgoraVideoView(
+            controller: VideoViewController.remote(
+              rtcEngine: _engine!,
+              canvas: VideoCanvas(uid: _remoteUid),
+              connection: RtcConnection(channelId: _channelName),
             ),
-
-          // Local Video (PiP)
-          if (_localUserJoined)
-            Positioned(
-              top: 120,
-              right: 20,
+          )
+        else
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (_remoteUserJoined) ...[
+                  const CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 6,
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Waiting for video...",
+                    style: TextStyle(color: Colors.white, fontSize: 22),
+                  ),
+                ] else ...[
+                  const Icon(
+                    Icons.videocam_off,
+                    size: 120,
+                    color: Colors.white54,
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    "Waiting for other participant...",
+                    style: TextStyle(color: Colors.white, fontSize: 24),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Channel: $_channelName",
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        if (_localUserJoined)
+          Positioned(
+            top: 60,
+            right: 16,
+            child: GestureDetector(
+              onTap: () {},
               child: Container(
                 width: 140,
                 height: 180,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white, width: 4),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 20)],
+                  border: Border.all(color: Colors.white70, width: 3),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.4),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(14),
                   child: _videoMuted
                       ? Container(
-                          color: Colors.grey[800],
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.videocam_off,
-                                  size: 40, color: Colors.white60),
-                              Text("Camera Off",
-                                  style: TextStyle(color: Colors.white60)),
-                            ],
+                          color: Colors.grey[900],
+                          child: const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.videocam_off,
+                                  color: Colors.white70,
+                                  size: 40,
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  "Camera Off",
+                                  style: TextStyle(color: Colors.white70),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : AgoraVideoView(
                           controller: VideoViewController(
                             rtcEngine: _engine!,
-                            canvas: VideoCanvas(uid: 0),
+                            canvas: const VideoCanvas(uid: 0),
                           ),
                         ),
                 ),
               ),
             ),
-        ],
-      ),
+          ),
+        Positioned(top: 16, left: 16, right: 16, child: _buildStatusBar()),
+        Positioned(bottom: 0, left: 0, right: 0, child: _buildControls()),
+      ],
     );
   }
 
   Widget _buildStatusBar() {
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: _currentStatus == SessionStatus.inProgress
-              ? [Colors.green, Colors.green[600]!]
-              : [Color(0xFF1E40AF), Color(0xFF3B82F6)],
+              ? [Colors.green.shade700, Colors.green.shade900]
+              : [const Color(0xFF1E40AF), const Color(0xFF3B82F6)],
         ),
-        borderRadius: BorderRadius.circular(25),
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Icon(_getStatusIcon(_currentStatus), size: 20, color: Colors.white),
-          SizedBox(width: 10),
-          Text(
+          Icon(
             _currentStatus == SessionStatus.inProgress
-                ? "LIVE CALL"
-                : "WAITING",
-            style: TextStyle(
+                ? Icons.videocam
+                : Icons.hourglass_bottom,
+            color: Colors.white,
+            size: 20,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _currentStatus == SessionStatus.inProgress ? "LIVE" : "WAITING",
+            style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: 16,
             ),
           ),
-          Spacer(),
+          const Spacer(),
           Text(
             _remoteUserJoined
-                ? "🔴 Live"
-                : "Channel: ${_channelName.split('_').last}",
-            style: TextStyle(color: Colors.white.withOpacity(0.9)),
+                ? "Connected"
+                : "Channel: ${_channelName.substring(0, _channelName.length.clamp(0, 12))}...",
+            style: const TextStyle(color: Colors.white70),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildProfessionalControls() {
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        margin: EdgeInsets.all(25),
-        padding: EdgeInsets.all(25),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.9),
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Chat Messages
+  Widget _buildControls() {
+    return Container(
+      margin: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.75),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_messages.isNotEmpty)
             Container(
-              height: 120,
+              constraints: const BoxConstraints(maxHeight: 140),
+              margin: const EdgeInsets.only(bottom: 16),
               child: ListView.builder(
                 reverse: true,
-                itemCount: messages.length,
-                itemBuilder: (context, index) => Container(
-                  margin: EdgeInsets.only(bottom: 8),
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    messages[index],
-                    style: TextStyle(color: Colors.white, fontSize: 15),
-                  ),
-                ),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          _messages[index],
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
-            SizedBox(height: 20),
-
-            // Input + Controls
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    style: TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: "Type message...",
-                      hintStyle: TextStyle(color: Colors.white60),
-                      filled: true,
-                      fillColor: Colors.white.withOpacity(0.15),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(25),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    hintText: "Type a message...",
+                    hintStyle: const TextStyle(color: Colors.white60),
+                    filled: true,
+                    fillColor: Colors.white.withOpacity(0.15),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(30),
+                      borderSide: BorderSide.none,
                     ),
-                    onSubmitted: (value) {
-                      if (value.trim().isNotEmpty) {
-                        setState(() => messages.add(value.trim()));
-                        _messageController.clear();
-                      }
-                    },
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 14,
+                    ),
                   ),
+                  onSubmitted: (_) => _sendMessage(),
                 ),
-                SizedBox(width: 15),
-
-                // Controls
-                _buildControlButton(
-                  icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
-                  onPressed: _toggleVideo,
-                  color: _videoMuted ? Colors.grey : Colors.red,
-                ),
-                _buildControlButton(
-                  icon: _micMuted ? Icons.mic_off : Icons.mic,
-                  onPressed: _toggleMute,
-                  color: _micMuted ? Colors.grey : Colors.orange,
-                ),
-                _buildControlButton(
-                  icon: Icons.call_end,
-                  onPressed: _leaveCall,
-                  color: Colors.red[600]!,
-                  size: 32,
-                ),
-              ],
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: 12),
+              _buildControlButton(
+                icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
+                onPressed: _toggleCamera,
+                color: _videoMuted ? Colors.grey : Colors.purple,
+              ),
+              const SizedBox(width: 12),
+              _buildControlButton(
+                icon: _micMuted ? Icons.mic_off : Icons.mic,
+                onPressed: _toggleMic,
+                color: _micMuted ? Colors.grey : Colors.orange,
+              ),
+              const SizedBox(width: 12),
+              _buildControlButton(
+                icon: Icons.call_end,
+                onPressed: _leaveCall,
+                color: Colors.red,
+                size: 32,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -488,29 +689,13 @@ class _SessionScreenState extends State<SessionScreen>
     required Color color,
     double size = 28,
   }) {
-    return Container(
-      width: 60,
-      height: 60,
-      margin: EdgeInsets.only(left: 10),
-      child: RawMaterialButton(
-        onPressed: onPressed,
-        elevation: 10,
-        fillColor: color,
-        padding: EdgeInsets.all(15),
-        shape: CircleBorder(),
-        child: Icon(icon, color: Colors.white, size: size),
-      ),
+    return RawMaterialButton(
+      onPressed: onPressed,
+      elevation: 6,
+      fillColor: color,
+      padding: const EdgeInsets.all(14),
+      shape: const CircleBorder(),
+      child: Icon(icon, color: Colors.white, size: size),
     );
-  }
-
-  IconData _getStatusIcon(SessionStatus status) {
-    switch (status) {
-      case SessionStatus.waiting:
-        return Icons.hourglass_empty;
-      case SessionStatus.inProgress:
-        return Icons.videocam;
-      default:
-        return Icons.schedule;
-    }
   }
 }

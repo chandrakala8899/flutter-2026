@@ -60,14 +60,12 @@ class _LoginScreenState extends State<LoginScreen> {
         final userRole = response['role'].toString().toLowerCase().trim();
 
         print("🔍 Detected role: '$userRole'"); // Debug log
-
-        // ✅ FIXED: Proper role matching (case-insensitive)
         switch (userRole) {
           case 'customer':
             Navigator.pushReplacementNamed(context, AppRoutes.customerHome);
             break;
-          case 'practitioner': // ✅ Matches "Practioner" → "practitioner"
-          case 'practioner': // ✅ Covers typos/misspellings
+          case 'practitioner':
+          case 'practioner':
             Navigator.pushReplacementNamed(context, AppRoutes.practitionerHome);
             break;
           default:
@@ -103,6 +101,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: Container(
         width: double.infinity,
         decoration: const BoxDecoration(
@@ -154,13 +153,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
                   ),
                   child: Form(
                     key: _formKey,

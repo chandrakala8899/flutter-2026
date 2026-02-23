@@ -6,6 +6,7 @@ import 'package:flutter_learning/product/model/cartmmodel.dart';
 import 'package:flutter_learning/product/web_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../product_service.dart/production_api.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class CartScreen extends StatefulWidget {
   final List<ProductNodeModel> selectedProducts;
@@ -253,4 +254,46 @@ class _CartScreenState extends State<CartScreen> {
       setState(() => isLoading = false);
     }
   }
+
+  // Future<void> _proceedToCheckout() async {
+  //   setState(() => isLoading = true);
+
+  //   try {
+  //     final cartItems = widget.selectedProducts.map((product) {
+  //       final variantEdges = product.variants?.edges;
+  //       if (variantEdges?.isNotEmpty == true) {
+  //         return CartItemRequest(
+  //           variantId: variantEdges!.first.node!.id,
+  //           quantity: 1,
+  //         );
+  //       } else {
+  //         throw Exception("Product '${product.title}' has no variant ID!");
+  //       }
+  //     }).toList();
+
+  //     final prefs = await SharedPreferences.getInstance();
+  //     String? email = prefs.getString("email");
+
+  //     final request = CartCreateRequest(items: cartItems);
+
+  //     await ProductApiService.createCart(request, email!);
+
+  //     final checkoutUrl = ProductApiService.lastCheckoutUrl;
+
+  //     if (checkoutUrl != null) {
+  //       final uri = Uri.parse(checkoutUrl);
+
+  //       await launchUrl(
+  //         uri,
+  //         mode: LaunchMode.externalApplication,
+  //       );
+  //     }
+  //   } catch (e) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text("❌ $e")),
+  //     );
+  //   } finally {
+  //     setState(() => isLoading = false);
+  //   }
+  // }
 }

@@ -25,24 +25,28 @@ class ConsultationSessionResponse {
     return ConsultationSessionResponse(
       sessionId: json['sessionId'] as int?,
       sessionNumber: json['sessionNumber'] as int?,
-      status: json['status'] != null 
+      status: json['status'] != null
           ? SessionStatus.values.firstWhere(
-              (e) => e.toString().split('.').last == json['status'])
+              (e) =>
+                  e.name.toLowerCase() ==
+                  json['status'].toString().toLowerCase(),
+              orElse: () => SessionStatus.waiting,
+            )
           : null,
-      customer: json['customer'] != null 
-          ? SimpleUser.fromJson(json['customer']) 
+      customer: json['customer'] != null
+          ? SimpleUser.fromJson(json['customer'])
           : null,
-      consultant: json['consultant'] != null 
-          ? SimpleUser.fromJson(json['consultant']) 
+      consultant: json['consultant'] != null
+          ? SimpleUser.fromJson(json['consultant'])
           : null,
-      createdAt: json['createdAt'] != null 
-          ? DateTime.parse(json['createdAt']) 
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'])
           : null,
-      startedAt: json['startedAt'] != null 
-          ? DateTime.parse(json['startedAt']) 
+      startedAt: json['startedAt'] != null
+          ? DateTime.tryParse(json['startedAt'])
           : null,
-      completedAt: json['completedAt'] != null 
-          ? DateTime.parse(json['completedAt']) 
+      completedAt: json['completedAt'] != null
+          ? DateTime.tryParse(json['completedAt'])
           : null,
     );
   }

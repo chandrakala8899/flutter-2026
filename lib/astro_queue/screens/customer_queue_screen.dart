@@ -1,12 +1,7 @@
-import 'dart:io' as IO;
-
 import 'package:flutter/material.dart';
+import 'package:flutter_learning/astro_queue/api_service.dart';
+import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-
-import 'package:socket_io_client/socket_io_client.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
 
 class CustomerQueueScreen extends StatefulWidget {
   final int consultantId;
@@ -23,184 +18,77 @@ class CustomerQueueScreen extends StatefulWidget {
 }
 
 class _CustomerQueueScreenState extends State<CustomerQueueScreen> {
-  IO.Socket? socket;
-  dynamic currentSession;
-  int position = -1;
-  bool isLoading = false;
-  bool showExpiryWarning = false;
-  int minutesLeft = 30;
+  bool isLoading = true;
+  List<ConsultationSessionResponse> waitingSessions = [];
 
   @override
   void initState() {
     super.initState();
-    connectWebSocket();
-    // loadSession();
+    _loadSessions();
   }
 
-  void connectWebSocket() {
-    socket = IO.io('http://localhost:16679',
-        IO.OptionBuilder().setTransports(['websocket']).build());
-
-    socket?.onConnect((_) => print('✅ Connected to WebSocket'));
-
-    // ✅ Real-time queue position updates
-    socket?.on('queue/${widget.customerId}', (data) {
-      setState(() {
-        position = data['position'];
-      });
-    });
-
-    // ✅ Expiry warnings
-    socket?.on('queue/expiry', (data) {
-      setState(() {
-        showExpiryWarning = true;
-        minutesLeft = data['minutesLeft'];
-      });
-    });
-  }
-
-  Future<void> createSession() async {
-    setState(() => isLoading = true);
+  Future<void> _loadSessions() async {
     try {
-      final response = await http.post(
-        Uri.parse('http://localhost:16679/api/sessions/create'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'customerId': widget.customerId,
-          'consultantId': widget.consultantId,
-        }),
+      final sessions = await ApiService.getCustomerSessions(
+        customerId: widget.customerId,
+        statuses: ["WAITING"],
       );
 
-      if (response.statusCode == 200) {
-        currentSession = json.decode(response.body);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => SessionScreen(
-              session: currentSession,
-              isCustomer: true,
-            ),
-          ),
-        );
-      }
+      setState(() {
+        waitingSessions = sessions
+            .where((s) => s.consultant!.id == widget.consultantId)
+            .toList();
+        isLoading = false;
+      });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
-    } finally {
       setState(() => isLoading = false);
     }
   }
 
-  Future<void> extendSession() async {
-    try {
-      await http.post(
-        Uri.parse(
-            'http://localhost:16679/api/sessions/extend/${currentSession?['sessionId']}'),
-      );
-      setState(() {
-        showExpiryWarning = false;
-        minutesLeft = 30;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('✅ Session extended 30 mins')),
-      );
-    } catch (e) {}
+  void _joinSession(ConsultationSessionResponse session) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionScreen(
+          session: session,
+          isCustomer: true,
+          channelName: session.sessionId.toString(),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("🎯 Join Consultation"),
-        backgroundColor: Colors.orange[600],
+        title: const Text("Waiting Queue"),
+        backgroundColor: Colors.orange,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            // Position Card
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    Text(
-                      position > 0 ? "Your Position: #$position" : "Join Queue",
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: position > 0 ? Colors.green : Colors.orange[700],
-                      ),
-                    ),
-                    if (position > 0) ...[
-                      const SizedBox(height: 10),
-                      Text("Session #${currentSession?['sessionNumber']}",
-                          style:
-                              TextStyle(fontSize: 18, color: Colors.grey[700])),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : waitingSessions.isEmpty
+              ? const Center(child: Text("No waiting sessions"))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: waitingSessions.length,
+                  itemBuilder: (context, index) {
+                    final session = waitingSessions[index];
 
-            // Expiry Warning
-            if (showExpiryWarning)
-              Card(
-                color: Colors.orange[50],
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.warning, color: Colors.orange[700], size: 30),
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text("⚠️ $minutesLeft minutes left!",
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.orange[700])),
-                            const Text("Session expires soon!"),
-                          ],
+                    return Card(
+                      child: ListTile(
+                        leading:
+                            const Icon(Icons.schedule, color: Colors.orange),
+                        title: Text("Session #${session.sessionNumber}"),
+                        subtitle: const Text("Waiting for consultant"),
+                        trailing: ElevatedButton(
+                          onPressed: () => _joinSession(session),
+                          child: const Text("Join"),
                         ),
                       ),
-                      ElevatedButton(
-                        onPressed: extendSession,
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange[600]),
-                        child: const Text("Extend"),
-                      ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              ),
-
-            const Spacer(),
-
-            // Join Button
-            SizedBox(
-              width: double.infinity,
-              height: 60,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : createSession,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange[600],
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15)),
-                ),
-                child: isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("🚀 Join Consultation Queue",
-                        style: TextStyle(fontSize: 18)),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
