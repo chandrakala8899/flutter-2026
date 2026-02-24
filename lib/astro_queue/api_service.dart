@@ -1,5 +1,7 @@
 // api_service.dart
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 
 import 'package:flutter_learning/astro_queue/model/session_request_model.dart';
@@ -80,6 +82,7 @@ class ApiService {
 
   static Future<ConsultationSessionResponse?> createSession({
     required ConsultationSessionRequest request,
+    required BuildContext context, // ← pass context so we can show SnackBar
   }) async {
     try {
       final response = await http.post(
@@ -93,13 +96,75 @@ class ApiService {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
-        return ConsultationSessionResponse.fromJson(data);
+        final session = ConsultationSessionResponse.fromJson(data);
+
+        // Success feedback
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                "Booking successful! Session #${session.sessionNumber}",
+                style: const TextStyle(color: Colors.white),
+              ),
+              backgroundColor: Colors.green.shade700,
+              duration: const Duration(seconds: 4),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+
+        return session;
       } else {
-        print(
-            "Create session failed: ${response.statusCode} - ${response.body}");
+        // Try to parse error message from backend
+        String errorMessage = "Failed to book session. Please try again.";
+        try {
+          final errorData = jsonDecode(response.body);
+          errorMessage = errorData['message'] ??
+              errorData['error'] ??
+              errorData['detail'] ??
+              "Server error (${response.statusCode})";
+        } catch (_) {
+          // Fallback if not JSON
+          errorMessage = "Server responded with error: ${response.statusCode}";
+        }
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                errorMessage,
+                style: const TextStyle(color: Colors.white),
+              ),
+              backgroundColor: Colors.red.shade700,
+              duration: const Duration(seconds: 5),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+
+        print("Create session failed: ${response.statusCode} - $errorMessage");
         return null;
       }
     } catch (e) {
+      String errorMsg = "Network error: ${e.toString()}";
+      if (e is SocketException) {
+        errorMsg = "No internet connection. Please check your network.";
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMsg),
+            backgroundColor: Colors.red.shade800,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+
       print("Create Session Error: $e");
       return null;
     }

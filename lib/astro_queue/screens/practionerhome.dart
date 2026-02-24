@@ -1,10 +1,10 @@
-// practitioner_home.dart - PRACTITIONER ONLY CHECK
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/screens/practioner_queue_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
+import 'package:flutter_learning/astro_queue/services/websocketservice.dart';
 
 class PractitionerHome extends StatefulWidget {
   const PractitionerHome({super.key});
@@ -20,10 +20,12 @@ class _PractitionerHomeState extends State<PractitionerHome> {
   int queueCount = 0;
   ConsultationSessionResponse? currentSession;
   UserModel? currentUser;
+  late WebSocketService webSocketService;
 
   @override
   void initState() {
     super.initState();
+    webSocketService = WebSocketService();
     _loadPractitionerOnly();
   }
 
@@ -31,23 +33,101 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     try {
       final user = await ApiService.getLoggedInUser();
 
-      // ✅ CORRECT CHECK - 'practitioner' (lowercase)
       if (user != null && user.roleEnum.name.toLowerCase() == 'practitioner') {
         setState(() {
           consultantId = user.userId!;
           currentUser = user;
         });
-        print("✅ ✅ PRACTITIONER CONFIRMED!");
+        print("✅ PRACTITIONER CONFIRMED – ID: $consultantId");
+
+        // Connect WebSocket for real-time updates
+        _connectWebSocket();
+
+        // Initial data load
         _loadQueueDataSilently();
       } else {
         print("❌ Role: '${user?.roleEnum.name}'");
         setState(() {
-          errorMessage = "Practitioner required";
+          errorMessage = "Practitioner access only";
         });
       }
     } catch (e) {
-      setState(() => errorMessage = "Session error");
+      setState(() => errorMessage = "Session error: $e");
     }
+  }
+
+  void _connectWebSocket() {
+    webSocketService.connect(
+      userId: consultantId,
+      onSessionUpdate: (data) {
+        // handle session updates (called, in_progress, etc.)
+        print("Session update: $data");
+        _refreshData();
+      },
+      onQueueUpdate: (data) {
+        // live queue update when new booking arrives
+        final newCount = data['queueSize'] as int? ?? 0;
+        print("Queue updated live: size = $newCount");
+
+        if (newCount != queueCount && mounted) {
+          setState(() => queueCount = newCount);
+          // optional popup or snackbar
+          _showNewBookingPopup(newCount);
+        }
+      },
+      onError: (error) {
+        print("WS error: $error");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Connection issue: $error")),
+          );
+        }
+      },
+    );
+  }
+
+  // Popup when new customer books (queue size increased)
+  void _showNewBookingPopup(int newQueueSize) {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: Colors.white,
+        title: Row(
+          children: const [
+            Icon(Icons.notifications_active, color: Colors.orange, size: 28),
+            SizedBox(width: 12),
+            Text("New Booking!", style: TextStyle(color: Colors.orange)),
+          ],
+        ),
+        content: Text(
+          "A new customer has just booked a consultation.\n\n"
+          // "Current queue size: **$newQueueSize**"
+          ,
+          style: const TextStyle(fontSize: 16, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _openQueue(); // Go directly to queue screen
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("Open Queue"),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadQueueDataSilently() async {
@@ -58,12 +138,13 @@ class _PractitionerHomeState extends State<PractitionerHome> {
           await ApiService.getPractionerQueue(consultantId.toString());
       final session =
           await ApiService.getCurrentSession(consultantId.toString());
+
       if (mounted) {
         setState(() {
           queueCount = queue.length;
           currentSession = session;
           print(
-              "✅ Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
+              "Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
         });
       }
     } catch (e) {
@@ -76,6 +157,12 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     setState(() => isLoading = true);
     await _loadQueueDataSilently();
     if (mounted) setState(() => isLoading = false);
+  }
+
+  @override
+  void dispose() {
+    webSocketService.disconnect();
+    super.dispose();
   }
 
   @override
@@ -179,7 +266,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
   Widget _buildDashboard() {
     return Column(
       children: [
-        // ✅ Stats Cards
+        // Stats Cards
         Container(
           padding: const EdgeInsets.all(20),
           child: Row(
@@ -205,7 +292,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
           ),
         ),
 
-        // ✅ Quick Actions
+        // Quick Actions
         Padding(
           padding: const EdgeInsets.all(20),
           child: Row(
@@ -250,10 +337,6 @@ class _PractitionerHomeState extends State<PractitionerHome> {
             ],
           ),
         ),
-
-        const Spacer(),
-
-        // ✅ Practitioner Welcome
         Container(
           margin: const EdgeInsets.all(20),
           padding: const EdgeInsets.all(28),
@@ -281,7 +364,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                   color: Colors.green.shade400,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.support_agent,
                   size: 50,
                   color: Colors.white,
@@ -289,7 +372,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
               ),
               const SizedBox(height: 20),
               Text(
-                "Welcome Practitioner ${currentUser?.name}",
+                "Welcome Practitioner ${currentUser?.name ?? ''}",
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -378,7 +461,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
         builder: (context) =>
             PractitionerQueueScreen(consultantId: consultantId),
       ),
-    );
+    ).then((_) => _refreshData());
   }
 
   void _joinCurrentSession() {
@@ -390,7 +473,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
         builder: (context) => SessionScreen(
           session: currentSession,
           isCustomer: false,
-          channelName: currentSession!.sessionId.toString(), // ✅ SAME CHANNEL
+          channelName: currentSession!.sessionId.toString(),
         ),
       ),
     );
