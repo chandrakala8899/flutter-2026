@@ -148,8 +148,8 @@ class _CustomerHomeState extends State<CustomerHome> {
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title: const Text("📞 Consultant is calling!"),
-        content: Text("Session #${data["sessionNumber"]}"),
+        title: const Text("📞 Your practitioner is ready to start the session"),
+        content: Text("Session ${data["sessionNumber"]}"),
         actions: [
           ElevatedButton(
             onPressed: () {

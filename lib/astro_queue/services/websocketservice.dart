@@ -20,7 +20,7 @@ class WebSocketService {
         reconnectDelay: const Duration(seconds: 5),
         connectionTimeout: Duration(seconds: 60),
         onConnect: (frame) {
-          print("🔥 STOMP Connected");
+          print(" STOMP Connected");
 
           _client?.subscribe(
             destination: "/user/queue/session",
