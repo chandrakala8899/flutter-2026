@@ -1,5 +1,3 @@
-
-
 class ConsultationSessionRequest {
   final int customerId;
   final int consultantId;
@@ -18,8 +16,8 @@ class ConsultationSessionRequest {
     return {
       "customerId": customerId,
       "consultantId": consultantId,
-      "startDate": startDate.toIso8601String(),
-      "endDate": endDate.toIso8601String(),
+      "scheduledStartTime": startDate.toIso8601String(),
+      "scheduledEndTime": endDate.toIso8601String(),
     };
   }
 
@@ -28,8 +26,8 @@ class ConsultationSessionRequest {
     return ConsultationSessionRequest(
       customerId: json['customerId'],
       consultantId: json['consultantId'],
-      startDate: DateTime.parse(json['startDate']),
-      endDate: DateTime.parse(json['endDate']),
+      startDate: DateTime.parse(json['scheduledStartTime']),
+      endDate: DateTime.parse(json['scheduledEndTime']),
     );
   }
 }

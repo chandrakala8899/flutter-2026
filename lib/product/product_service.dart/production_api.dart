@@ -9,7 +9,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 
 class ProductApiService {
-  static const String baseUrl = "https://39ae-183-82-6-26.ngrok-free.app/api";
+  static const String baseUrl = "https://2caa-183-82-6-26.ngrok-free.app/api";
 
   // static const baseUrl = "http://localhost:8080/api/shopify";
 

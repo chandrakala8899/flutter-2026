@@ -584,47 +584,36 @@ class _SessionScreenState extends State<SessionScreen>
                 },
               ),
             ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _messageController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: "Type a message...",
-                    hintStyle: const TextStyle(color: Colors.white60),
-                    filled: true,
-                    fillColor: Colors.white.withOpacity(0.15),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 14),
-                  ),
-                  onSubmitted: (_) => _sendMessage(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.75),
+              borderRadius: BorderRadius.circular(40),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildControlButton(
+                  icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
+                  onPressed: _toggleCamera,
+                  color: _videoMuted ? Colors.grey : Colors.purple,
                 ),
-              ),
-              const SizedBox(width: 12),
-              _buildControlButton(
-                icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
-                onPressed: _toggleCamera,
-                color: _videoMuted ? Colors.grey : Colors.purple,
-              ),
-              const SizedBox(width: 12),
-              _buildControlButton(
-                icon: _micMuted ? Icons.mic_off : Icons.mic,
-                onPressed: _toggleMic,
-                color: _micMuted ? Colors.grey : Colors.orange,
-              ),
-              const SizedBox(width: 12),
-              _buildControlButton(
-                icon: Icons.call_end,
-                onPressed: _leaveCall,
-                color: Colors.red,
-                size: 32,
-              ),
-            ],
+                const SizedBox(width: 16),
+                _buildControlButton(
+                  icon: _micMuted ? Icons.mic_off : Icons.mic,
+                  onPressed: _toggleMic,
+                  color: _micMuted ? Colors.grey : Colors.orange,
+                ),
+                const SizedBox(width: 16),
+                _buildControlButton(
+                  icon: Icons.call_end,
+                  onPressed: _leaveCall,
+                  color: Colors.red,
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -635,15 +624,17 @@ class _SessionScreenState extends State<SessionScreen>
     required IconData icon,
     required VoidCallback onPressed,
     required Color color,
-    double size = 28,
   }) {
-    return RawMaterialButton(
-      onPressed: onPressed,
-      elevation: 6,
-      fillColor: color,
-      padding: const EdgeInsets.all(14),
-      shape: const CircleBorder(),
-      child: Icon(icon, color: Colors.white, size: size),
+    return SizedBox(
+      height: 50,
+      width: 70,
+      child: RawMaterialButton(
+        onPressed: onPressed,
+        elevation: 3,
+        fillColor: color,
+        shape: const CircleBorder(),
+        child: Icon(icon, color: Colors.white, size: 22),
+      ),
     );
   }
 }

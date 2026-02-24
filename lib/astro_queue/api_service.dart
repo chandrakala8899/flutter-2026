@@ -78,7 +78,6 @@ class ApiService {
     }
   }
 
-  // ✅ 5. Create Session (Customer)
   static Future<ConsultationSessionResponse?> createSession({
     required ConsultationSessionRequest request,
   }) async {
@@ -89,13 +88,17 @@ class ApiService {
         body: jsonEncode(request.toJson()),
       );
 
-      print("CREATE SESSION: ${response.statusCode} - ${response.body}");
+      print(
+          "CREATE SESSION RESPONSE: ${response.statusCode} - ${response.body}");
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         final data = jsonDecode(response.body);
         return ConsultationSessionResponse.fromJson(data);
+      } else {
+        print(
+            "Create session failed: ${response.statusCode} - ${response.body}");
+        return null;
       }
-      return null;
     } catch (e) {
       print("Create Session Error: $e");
       return null;

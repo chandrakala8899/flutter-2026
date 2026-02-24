@@ -7,7 +7,7 @@ import 'package:flutter_learning/product/login/model/verify_otpmodel.dart';
 import 'package:http/http.dart' as http;
 
 class LoginService {
-  static const String baseUrl = "https://39ae-183-82-6-26.ngrok-free.app/api";
+  static const String baseUrl = "https://2caa-183-82-6-26.ngrok-free.app/api";
 
   Future<String> customerSignUp(CustomerLoginModel request) async {
     final url = Uri.parse("$baseUrl/customers/create");

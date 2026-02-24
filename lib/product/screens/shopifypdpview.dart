@@ -20,6 +20,7 @@ class _ShopifyPdpScreenState extends State<ShopifyPdpScreen> {
 
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent("aumraa_app_webview")
       ..loadRequest(
         Uri.parse(
           "https://aumraadev.myshopify.com/products/${widget.handle}",

@@ -11,20 +11,6 @@ void main() {
 class AstrologyQueueApp extends StatelessWidget {
   const AstrologyQueueApp({super.key});
 
-//   @override
-//   Widget build(BuildContext context) {
-//     return MultiProvider(
-//       providers: [
-//         ChangeNotifierProvider(create: (_) => QueueProvider()),
-//       ],
-//       child: const MaterialApp(
-//         debugShowCheckedModeBanner: false,
-//         home: AstroHomeScreen(),
-//       ),
-//     );
-//   }
-// }
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -35,7 +21,7 @@ class AstrologyQueueApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // home: const LoginScreen(),
-        // home: const ShopifyLogin(),
+      //  home: const ShopifyLogin(),
       initialRoute: AppRoutes.login,
       onGenerateRoute: AppRouter.generateRoute,
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+import 'package:flutter_learning/astro_queue/model/session_request_model.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
@@ -24,6 +25,7 @@ class _CustomerHomeState extends State<CustomerHome> {
   bool isLoading = true;
   bool isSocketConnected = false;
   bool _navigatingToSession = false;
+  bool _isStartingCall = false; // Prevent double-click
 
   @override
   void initState() {
@@ -34,13 +36,10 @@ class _CustomerHomeState extends State<CustomerHome> {
 
   @override
   void dispose() {
-    webSocketService.disconnect();
+    // webSocketService.disconnect();
     super.dispose();
   }
 
-  /* =========================================================
-     LOAD INITIAL DATA
-     ========================================================= */
   Future<void> _loadData() async {
     if (!mounted) return;
 
@@ -67,47 +66,84 @@ class _CustomerHomeState extends State<CustomerHome> {
         isLoading = false;
       });
 
-      /// ✅ Connect WebSocket only once
       if (!isSocketConnected) {
         _connectWebSocket(user.userId!);
       }
     } catch (e) {
-      if (mounted) {
-        setState(() => isLoading = false);
-      }
+      if (mounted) setState(() => isLoading = false);
       debugPrint("LOAD DATA ERROR: $e");
     }
   }
 
+  /* =========================================================
+     DATE & TIME PICKER – PROPER VALIDATION
+     ========================================================= */
+  Future<DateTime?> pickDateTime(
+    BuildContext context, {
+    DateTime? initialDate,
+    String? title,
+  }) async {
+    final DateTime now = DateTime.now();
+
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate ?? now.add(const Duration(hours: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+      helpText: title ?? "Select Date",
+      confirmText: "Next",
+      cancelText: "Cancel",
+    );
+
+    if (pickedDate == null) return null;
+
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(
+          initialDate ?? now.add(const Duration(hours: 1))),
+      helpText: title ?? "Select Time",
+    );
+
+    if (pickedTime == null) return null;
+
+    final selected = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    if (selected.isBefore(now)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please select a future date/time")),
+      );
+      return null;
+    }
+
+    return selected;
+  }
+
+  /* =========================================================
+     WEBSOCKET + OTHER HELPERS (unchanged)
+     ========================================================= */
   void _connectWebSocket(int customerId) {
     webSocketService.connect(
       customerId: customerId,
       onCustomerUpdate: (data) {
         if (!mounted) return;
-
         final status = data["status"];
-
         _loadData();
-
-        if (status == "CALLED") {
-          _showCallDialog(data);
-        }
-
-        if (status == "IN_PROGRESS") {
-          _autoOpenSession(data);
-        }
+        if (status == "CALLED") _showCallDialog(data);
+        if (status == "IN_PROGRESS") _autoOpenSession(data);
       },
-      onError: (error) {
-        debugPrint("WebSocket Error: $error");
-      },
+      onError: (error) => debugPrint("WebSocket Error: $error"),
     );
-
     isSocketConnected = true;
   }
 
   void _showCallDialog(Map<String, dynamic> data) {
     if (!mounted) return;
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -127,15 +163,11 @@ class _CustomerHomeState extends State<CustomerHome> {
     );
   }
 
-  /* =========================================================
-     AUTO OPEN SESSION SAFELY
-     ========================================================= */
   void _autoOpenSession(Map<String, dynamic> data) {
     if (_navigatingToSession) return;
     _navigatingToSession = true;
 
     final sessionId = data["sessionId"];
-
     final session = allSessions.firstWhere(
       (s) => s.sessionId == sessionId,
       orElse: () => allSessions.first,
@@ -156,9 +188,6 @@ class _CustomerHomeState extends State<CustomerHome> {
     });
   }
 
-  /* =========================================================
-     FILTER HELPERS
-     ========================================================= */
   List<ConsultationSessionResponse> get waitingSessions =>
       allSessions.where((s) => s.status == SessionStatus.waiting).toList();
 
@@ -171,9 +200,6 @@ class _CustomerHomeState extends State<CustomerHome> {
   int get liveCallCount =>
       allSessions.where((s) => s.status == SessionStatus.inProgress).length;
 
-  /* =========================================================
-     OPEN MANUAL SESSION
-     ========================================================= */
   void _openSession(ConsultationSessionResponse session) {
     Navigator.push(
       context,
@@ -200,14 +226,19 @@ class _CustomerHomeState extends State<CustomerHome> {
   }
 
   /* =========================================================
-     UI
+     MAIN UI
      ========================================================= */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Welcome ${currentUser?.name ?? ""}"),
+        automaticallyImplyLeading: false,
+        title: Text(
+          "Welcome ${currentUser?.name ?? ""}",
+          style: TextStyle(color: Colors.white),
+        ),
         backgroundColor: Colors.orange,
+        iconTheme: IconThemeData(color: Colors.white),
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -219,19 +250,17 @@ class _CustomerHomeState extends State<CustomerHome> {
                   Row(
                     children: [
                       Expanded(
-                        child: _statsCard(
-                            "Live Calls", liveCallCount, Colors.green),
-                      ),
+                          child: _statsCard(
+                              "Live Calls", liveCallCount, Colors.green)),
                       const SizedBox(width: 16),
                       Expanded(
-                        child: _statsCard(
-                            "In Queue", waitingSessions.length, Colors.orange),
-                      ),
+                          child: _statsCard("In Queue", waitingSessions.length,
+                              Colors.orange)),
                     ],
                   ),
                   const SizedBox(height: 30),
 
-                  /// WAITING
+                  // WAITING SESSIONS
                   if (waitingSessions.isNotEmpty) ...[
                     const Text("⏳ Awaiting Consultation",
                         style: TextStyle(
@@ -252,7 +281,7 @@ class _CustomerHomeState extends State<CustomerHome> {
 
                   const SizedBox(height: 25),
 
-                  /// ACTIVE
+                  // ACTIVE SESSIONS
                   if (activeSessions.isNotEmpty) ...[
                     const Text("🎥 Active Sessions",
                         style: TextStyle(
@@ -274,26 +303,134 @@ class _CustomerHomeState extends State<CustomerHome> {
 
                   const SizedBox(height: 30),
 
-                  /// PRACTITIONERS
+                  // AVAILABLE PRACTITIONERS
                   const Text("Available Practitioners",
                       style:
                           TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 15),
                   ...practitioners.map((p) => Card(
                         child: ListTile(
-                          title: Text(p.name),
+                          title: Text(p.name ?? "Unknown"),
                           subtitle: const Text("Astrologer Practitioner"),
                           trailing: ElevatedButton(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => CustomerQueueScreen(
-                                    consultantId: p.userId!,
-                                    customerId: currentUser!.userId!,
+                            onPressed: () async {
+                              if (_isStartingCall) return;
+                              setState(() => _isStartingCall = true);
+
+                              try {
+                                // Step 1: Pick start time
+                                final startTime = await pickDateTime(context,
+                                    title: "Select Consultation Start Time");
+                                if (startTime == null) return;
+
+                                // Step 2: Pick end time
+                                DateTime? endTime;
+                                do {
+                                  endTime = await pickDateTime(context,
+                                      initialDate: startTime
+                                          .add(const Duration(hours: 1)),
+                                      title: "Select Consultation End Time");
+                                  if (endTime == null) return;
+
+                                  if (endTime.isBefore(startTime)) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                          content: Text(
+                                              "End time must be after start time")),
+                                    );
+                                  }
+                                } while (endTime!.isBefore(startTime));
+
+                                // Step 3: Show confirmation dialog
+                                final bool? confirmed = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text("Confirm Consultation"),
+                                    content: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                            "With: ${p.name ?? 'Practitioner'}"),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                            "Start: ${startTime.toString().substring(0, 16)}"),
+                                        Text(
+                                            "End:   ${endTime.toString().substring(0, 16)}"),
+                                        const SizedBox(height: 12),
+                                        const Text(
+                                            "Are you sure you want to book this session?"),
+                                      ],
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text("Cancel"),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text("Confirm"),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              );
+                                );
+
+                                if (confirmed != true) return;
+
+                                // Step 4: Show loading
+                                showDialog(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (context) => const Center(
+                                      child: CircularProgressIndicator()),
+                                );
+
+                                // Step 5: Create session
+                                final request = ConsultationSessionRequest(
+                                  customerId: currentUser!.userId!,
+                                  consultantId: p.userId!,
+                                  startDate: startTime,
+                                  endDate: endTime,
+                                );
+
+                                final session = await ApiService.createSession(
+                                    request: request);
+
+                                // Close loading
+                                if (mounted && Navigator.canPop(context)) {
+                                  Navigator.pop(context);
+                                }
+
+                                if (session != null) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => CustomerQueueScreen(
+                                        consultantId: p.userId!,
+                                        customerId: currentUser!.userId!,
+                                      ),
+                                    ),
+                                  ).then((_) => _loadData());
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                            Text("Failed to create session")),
+                                  );
+                                }
+                              } catch (e) {
+                                debugPrint("Consult error: $e");
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text("Error: $e")),
+                                );
+                              } finally {
+                                if (mounted) {
+                                  setState(() => _isStartingCall = false);
+                                }
+                              }
                             },
                             child: const Text("Consult"),
                           ),
