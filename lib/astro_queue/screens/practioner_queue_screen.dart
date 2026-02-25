@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_learning/astro_queue/api_service.dart';
+import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
-import 'package:http/http.dart' as http;
 
 class PractitionerQueueScreen extends StatefulWidget {
   final int consultantId;
@@ -14,8 +14,8 @@ class PractitionerQueueScreen extends StatefulWidget {
 }
 
 class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
-  List<Map<String, dynamic>> queue = [];
-  Map<String, dynamic>? currentSession;
+  List<ConsultationSessionResponse> queue = [];
+  ConsultationSessionResponse? currentSession;
   bool isLoading = false;
   int queueSize = 0;
   Timer? _pollTimer;
@@ -34,108 +34,66 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    await Future.wait([_loadQueue(), _loadCurrentSession()]);
-  }
-
-  Future<void> _loadQueue() async {
     setState(() => isLoading = true);
     try {
-      final response = await http
-          .get(Uri.parse(
-              'http://localhost:16679/api/sessions/queue/${widget.consultantId}'))
-          .timeout(const Duration(seconds: 5));
+      final queueData =
+          await ApiService.getPractionerQueue(widget.consultantId.toString());
+      final sessionData =
+          await ApiService.getCurrentSession(widget.consultantId.toString());
 
-      if (response.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(response.body);
-        if (mounted) {
-          setState(() {
-            queue = List<Map<String, dynamic>>.from(data);
-            queueSize = queue.length;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          queue = queueData;
+          queueSize = queue.length;
+          currentSession = sessionData;
+          isLoading = false;
+        });
       }
     } catch (e) {
-      print("Queue error: $e");
-    } finally {
+      print("Queue load error: $e");
       if (mounted) setState(() => isLoading = false);
-    }
-  }
-
-  Future<void> _loadCurrentSession() async {
-    try {
-      final response = await http
-          .get(Uri.parse(
-              'http://localhost:16679/api/sessions/current/${widget.consultantId}'))
-          .timeout(const Duration(seconds: 5));
-
-      if (response.statusCode == 200 && response.body.isNotEmpty) {
-        if (mounted) {
-          setState(() {
-            currentSession = jsonDecode(response.body);
-          });
-        }
-      } else {
-        if (mounted) setState(() => currentSession = null);
-      }
-    } catch (e) {
-      print("No current session: $e");
-      if (mounted) setState(() => currentSession = null);
     }
   }
 
   Future<void> _callNextCustomer() async {
     try {
-      final response = await http.post(
-        Uri.parse(
-            'http://localhost:16679/api/sessions/call-next/${widget.consultantId}'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
+      final response = await ApiService.callNextCustomer(widget.consultantId);
 
-      if (response.statusCode == 200) {
+      if (response != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('Called next customer'),
               backgroundColor: Colors.green),
         );
         await Future.delayed(const Duration(milliseconds: 600));
-        await _loadInitialData();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error: ${response.statusCode}'),
-              backgroundColor: Colors.red),
-        );
+        _loadInitialData();
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Network error'), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text('Error calling next: $e'),
+            backgroundColor: Colors.red),
       );
     }
   }
 
-  Future<void> _startSession(Map<String, dynamic> session) async {
+  Future<void> _startSession(ConsultationSessionResponse session) async {
     try {
-      final response = await http.post(
-        Uri.parse(
-            'http://localhost:16679/api/sessions/${session['sessionId']}/start'),
-        headers: {'Content-Type': 'application/json'},
-      );
+      final updatedSession = await ApiService.startSession(session.sessionId!);
 
-      if (response.statusCode == 200) {
+      if (updatedSession != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Session started'),
-            backgroundColor: Colors.blue,
-          ),
+              content: Text('Session started'), backgroundColor: Colors.blue),
         );
 
-        // 🔥 Navigate to SessionScreen
         Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) => SessionScreen(
+              session: updatedSession,
               isCustomer: false,
-              channelName: session['sessionId'].toString(),
+              channelName: session.sessionId.toString(),
             ),
           ),
         ).then((_) => _loadInitialData());
@@ -147,32 +105,27 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
 
   Future<void> _completeSession(int sessionId) async {
     try {
-      final response = await http.post(
-        Uri.parse('http://localhost:16679/api/sessions/$sessionId/complete'),
-        headers: {'Content-Type': 'application/json'},
-      );
+      final updated = await ApiService.completeSession(sessionId);
 
-      if (response.statusCode == 200) {
+      if (updated != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('Session completed'),
               backgroundColor: Colors.green),
         );
-        await _loadInitialData();
+        _loadInitialData();
       }
     } catch (e) {
       print("Complete failed: $e");
     }
   }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
+  Color _getStatusColor(String? status) {
+    switch (status?.toUpperCase()) {
       case 'WAITING':
         return Colors.orange;
       case 'CALLED':
         return Colors.blue;
-      case 'CUSTOMER_JOINED':
-        return Colors.teal;
       case 'IN_PROGRESS':
         return Colors.green;
       case 'COMPLETED':
@@ -183,11 +136,9 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
   }
 
   String _getDisplayStatus(String? status) {
-    switch (status) {
+    switch (status?.toUpperCase()) {
       case 'CALLED':
         return "Called – waiting for customer";
-      case 'CUSTOMER_JOINED':
-        return "Customer joined – connecting";
       case 'IN_PROGRESS':
         return "In call";
       case 'COMPLETED':
@@ -250,7 +201,7 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                       Text(
                         currentSession == null
                             ? "No Active Session"
-                            : _getDisplayStatus(currentSession!['status']),
+                            : _getDisplayStatus(currentSession!.status?.name),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 22,
@@ -260,18 +211,18 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                       if (currentSession != null) ...[
                         const SizedBox(height: 8),
                         Text(
-                          "Customer: ${currentSession!['customer']['name'] ?? 'N/A'}",
+                          "Customer: ${currentSession!.customer?.name ?? 'N/A'}",
                           style: TextStyle(
                               color: Colors.white.withOpacity(0.9),
                               fontSize: 16),
                         ),
                         Text(
-                          "Session #${currentSession!['sessionNumber']}",
+                          "Session #${currentSession!.sessionNumber ?? 'N/A'}",
                           style: TextStyle(
                               color: Colors.white.withOpacity(0.9),
                               fontSize: 16),
                         ),
-                        if (currentSession!['status'] == 'CALLED')
+                        if (currentSession!.status?.name == 'CALLED')
                           Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Text(
@@ -331,9 +282,10 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                       child: Text(
                         "$queueSize",
                         style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16),
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     ),
                   ],
@@ -370,8 +322,7 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                             const SizedBox(height: 8),
                         itemBuilder: (context, index) {
                           final session = queue[index];
-                          final status =
-                              session['status']?.toString() ?? 'UNKNOWN';
+                          final status = session.status?.name ?? 'UNKNOWN';
 
                           return Card(
                             elevation: 6,
@@ -385,14 +336,14 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                                 child: Text(
                                   "${index + 1}",
                                   style: TextStyle(
-                                      color: Colors.orange.shade800,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 20),
+                                    color: Colors.orange.shade800,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 20,
+                                  ),
                                 ),
                               ),
                               title: Text(
-                                session['customer']['name'] ??
-                                    'Unknown Customer',
+                                session.customer?.name ?? 'Unknown Customer',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700, fontSize: 18),
                               ),
@@ -400,7 +351,7 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                      "Session #${session['sessionNumber'] ?? 'N/A'}"),
+                                      "Session #${session.sessionNumber ?? 'N/A'}"),
                                   const SizedBox(height: 4),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
@@ -434,11 +385,10 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                                           color: Colors.green),
                                       tooltip: "Accept & Start",
                                     ),
-                                  if (status == 'IN_PROGRESS' ||
-                                      status == 'CUSTOMER_JOINED')
+                                  if (status == 'IN_PROGRESS')
                                     IconButton(
-                                      onPressed: () => _completeSession(
-                                          session['sessionId']),
+                                      onPressed: () =>
+                                          _completeSession(session.sessionId!),
                                       icon: const Icon(Icons.check,
                                           color: Colors.green),
                                       tooltip: "Complete",
@@ -454,6 +404,21 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
       ),
     );
   }
+
+  // Color _getStatusColor(String status) {
+  //   switch (status.toUpperCase()) {
+  //     case 'WAITING':
+  //       return Colors.orange;
+  //     case 'CALLED':
+  //       return Colors.blue;
+  //     case 'IN_PROGRESS':
+  //       return Colors.green;
+  //     case 'COMPLETED':
+  //       return Colors.grey;
+  //     default:
+  //       return Colors.grey;
+  //   }
+  // }
 
   @override
   void dispose() {

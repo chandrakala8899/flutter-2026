@@ -206,13 +206,13 @@ class ApiService {
     }
   }
 
-  // ✅ 7. Current Session
   static Future<ConsultationSessionResponse?> getCurrentSession(
       String consultantId) async {
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/api/sessions/current/$consultantId"),
       );
+      print("Get Current Session: ${response.statusCode} - ${response.body}");
       if (response.statusCode == 200 && response.body.isNotEmpty) {
         return ConsultationSessionResponse.fromJson(jsonDecode(response.body));
       }
@@ -224,7 +224,7 @@ class ApiService {
   }
 
   // ✅ 8. Call Next Customer
-  static Future<bool> callNextCustomer(String consultantId) async {
+  static Future<bool> callNextCustomer(int consultantId) async {
     try {
       final response = await http.post(
         Uri.parse("$baseUrl/api/sessions/call-next/$consultantId"),
@@ -238,8 +238,49 @@ class ApiService {
     }
   }
 
+  static Future<Map<String, dynamic>?> joinSession({
+    required int sessionId,
+    required int userId,
+    BuildContext? context,
+  }) async {
+    try {
+      final uri =
+          Uri.parse("$baseUrl/api/sessions/$sessionId/join?userId=$userId");
+      final response =
+          await http.get(uri, headers: {"Content-Type": "application/json"});
+
+      print("Join Session: ${response.statusCode} - ${response.body}");
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        String msg = "Failed to join (code ${response.statusCode})";
+        try {
+          final err = jsonDecode(response.body);
+          msg = err['message'] ?? err['error'] ?? msg;
+        } catch (_) {}
+        if (context != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(msg), backgroundColor: Colors.red),
+          );
+        }
+        return null;
+      }
+    } catch (e) {
+      print("Join Session Error: $e");
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text("Network error: $e"), backgroundColor: Colors.red),
+        );
+      }
+      return null;
+    }
+  }
+
   // ✅ 9. Start Session
-  static Future<ConsultationSessionResponse?> startSession(
+  static Future<ConsultationSessionResponse?> 
+  startSession(
       int sessionId) async {
     try {
       final response = await http.post(
@@ -270,6 +311,28 @@ class ApiService {
       return false;
     }
   }
+
+  static Future<ConsultationSessionResponse?> leaveSession({
+  required int sessionId,
+  required int userId,
+}) async {
+  try {
+    final url = "$baseUrl/api/sessions/$sessionId/leave?userId=$userId";
+    debugPrint("Calling leave session: $url");
+
+    final response = await http.post(Uri.parse(url));
+
+    if (response.statusCode == 200) {
+      return ConsultationSessionResponse.fromJson(jsonDecode(response.body));
+    } else {
+      debugPrint("Leave failed: ${response.statusCode} - ${response.body}");
+      return null;
+    }
+  } catch (e) {
+    debugPrint("Leave error: $e");
+    return null;
+  }
+}
 
   static Future<List<ConsultationSessionResponse>> getCustomerSessions({
     required int customerId,

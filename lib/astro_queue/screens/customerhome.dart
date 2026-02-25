@@ -81,9 +81,6 @@ class _CustomerHomeState extends State<CustomerHome> {
     }
   }
 
-  // ────────────────────────────────────────────────
-  // DATE & TIME PICKER
-  // ────────────────────────────────────────────────
   Future<DateTime?> pickDateTime(
     BuildContext context, {
     DateTime? initialDate,
@@ -129,9 +126,7 @@ class _CustomerHomeState extends State<CustomerHome> {
     return selected;
   }
 
-  // ────────────────────────────────────────────────
-  // WEBSOCKET
-  // ────────────────────────────────────────────────
+
   void _connectWebSocket(int customerId) {
     webSocketService.connect(
       userId: customerId,

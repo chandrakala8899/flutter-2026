@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
@@ -10,13 +11,14 @@ class SessionScreen extends StatefulWidget {
   final ConsultationSessionResponse? session;
   final bool isCustomer;
   final String? channelName;
+  final String? token;
 
-  const SessionScreen({
-    super.key,
-    this.session,
-    required this.isCustomer,
-    this.channelName,
-  });
+  const SessionScreen(
+      {super.key,
+      this.session,
+      required this.isCustomer,
+      this.channelName,
+      this.token});
 
   @override
   State<SessionScreen> createState() => _SessionScreenState();
@@ -207,7 +209,7 @@ class _SessionScreenState extends State<SessionScreen>
       // Role: Publisher
       // ──────────────────────────────────────────────
       final token =
-          "007eJxTYGDeLj3zavalwN1//HeejmVdtG6jndjmTnmlRi/l95PFzxxUYDBMNLe0TE4zNkgyMDNJTExKSjE0MzK0SEs0ME0yMTA00ZGZk9kQyMiQ0F/MyMgAgSC+IENicUlRfnxyRmJeXmpOvKGRMQMDAPVdI0k="; // ← PASTE YOUR REAL TOKEN HERE
+          "007eJxTYFh9+t2fb/7+KZOYy187rFDZbPk6KInXjbXGLO2GG0MW4z4FBsNEc0vL5DRjgyQDM5PExKSkFEMzI0OLtEQD0yQTA0OTOXlzMxsCGRnOcS1jZGSAQBBfkCGxuKQoPz45IzEvLzUn3tDImIEBANuCIyI="; // ← PASTE YOUR REAL TOKEN HERE
 
       // Optional: uncomment next line if you want to see what token is used
       // debugPrint("Using temporary hardcoded token: ${token.substring(0, 20)}...");
@@ -259,17 +261,60 @@ class _SessionScreenState extends State<SessionScreen>
     _engine = null;
   }
 
+  // Future<void> _leaveCall() async {
+  //   await _cleanupEngine();
+  //   setState(() {
+  //     _isInCall = false;
+  //     _localUserJoined = false;
+  //     _remoteUserJoined = false;
+  //     _remoteVideoPublished = false;
+  //     _remoteUid = null;
+  //     _currentStatus = SessionStatus.waiting;
+  //   });
+  //   if (mounted) Navigator.pop(context);
+  // }
+
   Future<void> _leaveCall() async {
+    try {
+      if (widget.session?.sessionId != null) {
+        // Call backend to end session
+        final response = await ApiService.leaveSession(
+          sessionId: widget.session!.sessionId!,
+          userId: widget.isCustomer
+              ? widget.session!.customer!.id!
+              : widget.session!.consultant!.id!,
+        );
+
+        if (response != null) {
+          debugPrint("Session ended on server: ${response.status}");
+        }
+      }
+    } catch (e) {
+      debugPrint("Failed to end session on server: $e");
+    }
+
+    // Clean up Agora
     await _cleanupEngine();
+
     setState(() {
       _isInCall = false;
       _localUserJoined = false;
       _remoteUserJoined = false;
       _remoteVideoPublished = false;
       _remoteUid = null;
-      _currentStatus = SessionStatus.waiting;
+      _currentStatus = SessionStatus.completed; // new enum value
     });
-    if (mounted) Navigator.pop(context);
+
+    // Show ended message & pop
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Session Ended"),
+          backgroundColor: Colors.red,
+        ),
+      );
+      Navigator.pop(context);
+    }
   }
 
   Future<void> _toggleMic() async {

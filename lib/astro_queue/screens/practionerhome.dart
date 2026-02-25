@@ -40,10 +40,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
         });
         print("✅ PRACTITIONER CONFIRMED – ID: $consultantId");
 
-        // Connect WebSocket for real-time updates
         _connectWebSocket();
-
-        // Initial data load
         _loadQueueDataSilently();
       } else {
         print("❌ Role: '${user?.roleEnum.name}'");
@@ -53,40 +50,48 @@ class _PractitionerHomeState extends State<PractitionerHome> {
       }
     } catch (e) {
       setState(() => errorMessage = "Session error: $e");
+      print("Login error: $e");
     }
   }
 
   void _connectWebSocket() {
+    if (consultantId == 0) return;
+
     webSocketService.connect(
       userId: consultantId,
       onSessionUpdate: (data) {
-        // handle session updates (called, in_progress, etc.)
-        print("Session update: $data");
+        print("Session update received: $data");
         _refreshData();
       },
       onQueueUpdate: (data) {
-        // live queue update when new booking arrives
-        final newCount = data['queueSize'] as int? ?? 0;
-        print("Queue updated live: size = $newCount");
+        print("Queue updated LIVE: $data");
+        final newQueueSize = data['queueSize'] as int? ?? 0;
 
-        if (newCount != queueCount && mounted) {
-          setState(() => queueCount = newCount);
-          // optional popup or snackbar
-          _showNewBookingPopup(newCount);
+        if (newQueueSize != queueCount && mounted) {
+          final oldCount = queueCount;
+          setState(() {
+            queueCount = newQueueSize;
+          });
+
+          if (newQueueSize > oldCount) {
+            _showNewBookingPopup(newQueueSize);
+          }
         }
       },
       onError: (error) {
-        print("WS error: $error");
+        print("WebSocket error: $error");
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Connection issue: $error")),
+            SnackBar(
+              content: Text("WebSocket connection issue: $error"),
+              backgroundColor: Colors.red.shade700,
+            ),
           );
         }
       },
     );
   }
 
-  // Popup when new customer books (queue size increased)
   void _showNewBookingPopup(int newQueueSize) {
     if (!mounted) return;
 
@@ -105,8 +110,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
         ),
         content: Text(
           "A new customer has just booked a consultation.\n\n"
-          // "Current queue size: **$newQueueSize**"
-          ,
+          "Current queue size: **$newQueueSize**",
           style: const TextStyle(fontSize: 16, height: 1.5),
         ),
         actions: [
@@ -117,7 +121,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              _openQueue(); // Go directly to queue screen
+              _openQueue();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.green.shade600,
@@ -133,27 +137,31 @@ class _PractitionerHomeState extends State<PractitionerHome> {
   Future<void> _loadQueueDataSilently() async {
     if (consultantId == 0) return;
     try {
-      print("🔄 Loading queue silently...");
-      final queue =
-          await ApiService.getPractionerQueue(consultantId.toString());
-      final session =
-          await ApiService.getCurrentSession(consultantId.toString());
+      print("🔄 Loading queue & session for consultant $consultantId");
+
+      final queue = await ApiService.getPractionerQueue(consultantId.toString());
+      final session = await ApiService.getCurrentSession(consultantId.toString());
 
       if (mounted) {
         setState(() {
           queueCount = queue.length;
           currentSession = session;
-          print(
-              "Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
+          print("Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
+
+          if (session != null) {
+            print("Active session details: ID=${session.sessionId}, status=${session.status?.name ?? 'unknown'}");
+          } else {
+            print("No active/called session returned from backend");
+          }
         });
       }
     } catch (e) {
-      print("Queue load error: $e");
+      print("Queue/session load error: $e");
     }
   }
 
   Future<void> _refreshData() async {
-    if (consultantId == 0) return;
+    if (consultantId == 0 || !mounted) return;
     setState(() => isLoading = true);
     await _loadQueueDataSilently();
     if (mounted) setState(() => isLoading = false);
@@ -167,6 +175,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
 
   @override
   Widget build(BuildContext context) {
+    final bool hasActiveCall = currentSession != null;
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -186,8 +196,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
       body: errorMessage != null
           ? _buildErrorScreen()
           : isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(color: Colors.green))
+              ? const Center(child: CircularProgressIndicator(color: Colors.green))
               : consultantId == 0
                   ? const Center(
                       child: Column(
@@ -196,8 +205,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                           CircularProgressIndicator(color: Colors.green),
                           SizedBox(height: 16),
                           Text("Checking practitioner login...",
-                              style:
-                                  TextStyle(fontSize: 16, color: Colors.grey)),
+                              style: TextStyle(fontSize: 16, color: Colors.grey)),
                         ],
                       ),
                     )
@@ -242,18 +250,15 @@ class _PractitionerHomeState extends State<PractitionerHome> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade600,
                 foregroundColor: Colors.white,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               icon: const Icon(Icons.refresh),
               label: const Text("Retry"),
             ),
             const SizedBox(height: 16),
             TextButton.icon(
-              onPressed: () =>
-                  Navigator.pushReplacementNamed(context, '/login'),
+              onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
               icon: const Icon(Icons.logout),
               label: const Text("Logout"),
             ),
@@ -264,6 +269,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
   }
 
   Widget _buildDashboard() {
+    final bool hasActiveCall = currentSession != null;
+
     return Column(
       children: [
         // Stats Cards
@@ -283,9 +290,9 @@ class _PractitionerHomeState extends State<PractitionerHome> {
               Expanded(
                 child: _buildStatCard(
                   "🎥 Active Call",
-                  currentSession != null ? "1" : "0",
-                  currentSession != null ? Colors.green : Colors.grey,
-                  currentSession != null ? () => _openQueue() : null,
+                  hasActiveCall ? "1" : "0",
+                  hasActiveCall ? Colors.green : Colors.grey,
+                  hasActiveCall ? () => _joinCurrentSession() : null,
                 ),
               ),
             ],
@@ -306,15 +313,13 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade600,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                     elevation: 8,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
-              if (currentSession != null) ...[
+              if (hasActiveCall) ...[
                 const SizedBox(width: 16),
                 Expanded(
                   child: ElevatedButton.icon(
@@ -325,11 +330,9 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade700,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       elevation: 8,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
                 ),
@@ -337,6 +340,10 @@ class _PractitionerHomeState extends State<PractitionerHome> {
             ],
           ),
         ),
+
+        const Spacer(),
+
+        // Welcome Card
         Container(
           margin: const EdgeInsets.all(20),
           padding: const EdgeInsets.all(28),
@@ -458,24 +465,61 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            PractitionerQueueScreen(consultantId: consultantId),
+        builder: (context) => PractitionerQueueScreen(consultantId: consultantId),
       ),
     ).then((_) => _refreshData());
   }
 
-  void _joinCurrentSession() {
-    if (currentSession == null) return;
+  void _joinCurrentSession() async {
+    if (currentSession == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No active or called session to join")),
+      );
+      return;
+    }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SessionScreen(
-          session: currentSession,
-          isCustomer: false,
-          channelName: currentSession!.sessionId.toString(),
+    try {
+      print("Joining session ID: ${currentSession!.sessionId}");
+
+      final joinData = await ApiService.joinSession(
+        sessionId: currentSession!.sessionId!,
+        userId: consultantId,
+        context: context,
+      );
+
+      if (joinData == null || !mounted) return;
+
+      final channel = joinData['channel'] as String?;
+      final token = joinData['token'] as String?;
+
+      if (channel == null || token == null) {
+        throw Exception("Invalid join response from server");
+      }
+
+      print("Join success - Channel: $channel, Token received");
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SessionScreen(
+            session: currentSession,
+            isCustomer: false,
+            channelName: channel,
+            token: token,
+          ),
         ),
-      ),
-    );
+      ).then((_) => _refreshData());
+    } catch (e) {
+      print("Join call failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to join call: $e"),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 }
