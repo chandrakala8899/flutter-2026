@@ -246,32 +246,28 @@ class ApiService {
     try {
       final uri =
           Uri.parse("$baseUrl/api/sessions/$sessionId/join?userId=$userId");
+
       final response =
           await http.get(uri, headers: {"Content-Type": "application/json"});
 
-      print("Join Session: ${response.statusCode} - ${response.body}");
-
       if (response.statusCode == 200) {
-        return jsonDecode(response.body);
-      } else {
-        String msg = "Failed to join (code ${response.statusCode})";
-        try {
-          final err = jsonDecode(response.body);
-          msg = err['message'] ?? err['error'] ?? msg;
-        } catch (_) {}
-        if (context != null && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(msg), backgroundColor: Colors.red),
-          );
+        final data = jsonDecode(response.body);
+
+        if (data["channelName"] == null ||
+            data["rtcToken"] == null ||
+            data["rtmToken"] == null ||
+            data["uid"] == null) {
+          throw Exception("Invalid join response from server");
         }
+
+        return data;
+      } else {
         return null;
       }
     } catch (e) {
-      print("Join Session Error: $e");
       if (context != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text("Network error: $e"), backgroundColor: Colors.red),
+          SnackBar(content: Text("Join failed: $e")),
         );
       }
       return null;
@@ -279,8 +275,7 @@ class ApiService {
   }
 
   // ✅ 9. Start Session
-  static Future<ConsultationSessionResponse?> 
-  startSession(
+  static Future<ConsultationSessionResponse?> startSession(
       int sessionId) async {
     try {
       final response = await http.post(
@@ -313,26 +308,26 @@ class ApiService {
   }
 
   static Future<ConsultationSessionResponse?> leaveSession({
-  required int sessionId,
-  required int userId,
-}) async {
-  try {
-    final url = "$baseUrl/api/sessions/$sessionId/leave?userId=$userId";
-    debugPrint("Calling leave session: $url");
+    required int sessionId,
+    required int userId,
+  }) async {
+    try {
+      final url = "$baseUrl/api/sessions/$sessionId/leave?userId=$userId";
+      debugPrint("Calling leave session: $url");
 
-    final response = await http.post(Uri.parse(url));
+      final response = await http.post(Uri.parse(url));
 
-    if (response.statusCode == 200) {
-      return ConsultationSessionResponse.fromJson(jsonDecode(response.body));
-    } else {
-      debugPrint("Leave failed: ${response.statusCode} - ${response.body}");
+      if (response.statusCode == 200) {
+        return ConsultationSessionResponse.fromJson(jsonDecode(response.body));
+      } else {
+        debugPrint("Leave failed: ${response.statusCode} - ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("Leave error: $e");
       return null;
     }
-  } catch (e) {
-    debugPrint("Leave error: $e");
-    return null;
   }
-}
 
   static Future<List<ConsultationSessionResponse>> getCustomerSessions({
     required int customerId,
@@ -356,6 +351,27 @@ class ApiService {
       return data.map((e) => ConsultationSessionResponse.fromJson(e)).toList();
     } else {
       throw Exception("Failed to load sessions");
+    }
+  }
+
+// ✅ Fetch Agora RTC + RTM Tokens
+  static Future<Map<String, dynamic>> fetchAgoraTokens({
+    required int sessionId,
+    required int uid,
+  }) async {
+    try {
+      final uri =
+          Uri.parse("$baseUrl/api/agora/tokens?sessionId=$sessionId&uid=$uid");
+
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      } else {
+        throw Exception("Failed to fetch tokens (${response.statusCode})");
+      }
+    } catch (e) {
+      throw Exception("Agora token error: $e");
     }
   }
 

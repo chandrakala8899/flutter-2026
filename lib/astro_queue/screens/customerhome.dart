@@ -185,7 +185,7 @@ class _CustomerHomeState extends State<CustomerHome> {
     );
   }
 
-  void _autoOpenSession(Map<String, dynamic> data) {
+  Future<void> _autoOpenSession(Map<String, dynamic> data) async {
     if (_navigatingToSession || !mounted) return;
     _navigatingToSession = true;
 
@@ -195,29 +195,40 @@ class _CustomerHomeState extends State<CustomerHome> {
       return;
     }
 
-    final session = allSessions.firstWhere(
-      (s) => s.sessionId == sessionId,
-      orElse: () => allSessions.firstWhere(
-        (s) => s.status == SessionStatus.inProgress,
-        orElse: () => allSessions.first,
-      ),
-    );
+    try {
+      final joinData = await ApiService.joinSession(
+        sessionId: sessionId,
+        userId: currentUser!.userId!,
+        context: context,
+      );
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SessionScreen(
-          session: session,
-          isCustomer: true,
-          channelName: session.sessionId.toString(),
-        ),
-      ),
-    ).then((_) {
-      if (mounted) {
+      if (joinData == null || !mounted) {
         _navigatingToSession = false;
-        _loadData(showLoading: false);
+        return;
       }
-    });
+
+      final session = allSessions.firstWhere(
+        (s) => s.sessionId == sessionId,
+        orElse: () => allSessions.first,
+      );
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SessionScreen(
+            session: session,
+            joinData: joinData,
+          ),
+        ),
+      ).then((_) {
+        if (mounted) {
+          _navigatingToSession = false;
+          _loadData(showLoading: false);
+        }
+      });
+    } catch (e) {
+      _navigatingToSession = false;
+    }
   }
 
   // Getters
@@ -233,17 +244,28 @@ class _CustomerHomeState extends State<CustomerHome> {
   int get liveCallCount =>
       allSessions.where((s) => s.status == SessionStatus.inProgress).length;
 
-  void _openSession(ConsultationSessionResponse session) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SessionScreen(
-          session: session,
-          isCustomer: true,
-          channelName: session.sessionId.toString(),
+  Future<void> _openSession(ConsultationSessionResponse session) async {
+    try {
+      final joinData = await ApiService.joinSession(
+        sessionId: session.sessionId!,
+        userId: currentUser!.userId!,
+        context: context,
+      );
+
+      if (joinData == null || !mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SessionScreen(
+            session: session,
+            joinData: joinData,
+          ),
         ),
-      ),
-    ).then((_) => _loadData(showLoading: false));
+      ).then((_) => _loadData(showLoading: false));
+    } catch (e) {
+      print("Join failed: $e");
+    }
   }
 
   void _openQueueScreen(ConsultationSessionResponse session) {

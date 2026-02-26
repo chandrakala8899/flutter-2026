@@ -45,18 +45,29 @@ class _CustomerQueueScreenState extends State<CustomerQueueScreen> {
     }
   }
 
-  void _joinSession(ConsultationSessionResponse session) {
+Future<void> _joinSession(ConsultationSessionResponse session) async {
+  try {
+    final joinData = await ApiService.joinSession(
+      sessionId: session.sessionId!,
+      userId: widget.customerId,
+      context: context,
+    );
+
+    if (joinData == null || !mounted) return;
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => SessionScreen(
           session: session,
-          isCustomer: true,
-          channelName: session.sessionId.toString(),
+          joinData: joinData,
         ),
       ),
     );
+  } catch (e) {
+    print("Queue join failed: $e");
   }
+}
 
   @override
   Widget build(BuildContext context) {

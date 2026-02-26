@@ -1,629 +1,84 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:http/http.dart' as http;
-import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
-import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+import 'package:flutter_learning/astro_queue/screens/chat_screen.dart';
+import 'package:flutter_learning/astro_queue/screens/vedio_call_screen.dart';
+import '../model/consultantresponse_model.dart';
 
 class SessionScreen extends StatefulWidget {
-  final ConsultationSessionResponse? session;
-  final bool isCustomer;
-  final String? channelName;
-  final String? token;
+  final ConsultationSessionResponse session;
+  final Map<String, dynamic> joinData;
 
   const SessionScreen({
     super.key,
-    this.session,
-    required this.isCustomer,
-    this.channelName,
-    this.token,
+    required this.session,
+    required this.joinData,
   });
 
   @override
   State<SessionScreen> createState() => _SessionScreenState();
 }
 
-class _SessionScreenState extends State<SessionScreen>
-    with TickerProviderStateMixin {
-  RtcEngine? _engine;
-
-  bool _isInCall = false;
-  bool _localUserJoined = false;
-  bool _remoteUserJoined = false;
-  bool _remoteVideoPublished = false;
-
-  bool _micMuted = false;
-  bool _videoMuted = false;
-  bool _isVoiceOnly = false;
-
-  int? _remoteUid;
-  SessionStatus _currentStatus = SessionStatus.waiting;
-
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
-
-  final TextEditingController _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [];
-
-  static const String _channelName = "astro_channel_123";
-  static const int _uidCustomer = 1001;
-  static const int _uidPractitioner = 1002;
-  static const String _appId = "1a799cf30b064aabbd16218fa05b4014";
-
-  bool _isStartingCall = false;
-  String? _errorMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController =
-        AnimationController(vsync: this, duration: const Duration(seconds: 2));
-    _pulseAnimation =
-        Tween<double>(begin: 0.9, end: 1.1).animate(_pulseController);
-    _pulseController.repeat(reverse: true);
-
-    _messages.add({
-      'sender': 'System',
-      'text': 'Session started! Ask questions or switch to voice mode anytime.',
-      'isMe': false,
-    });
-  }
-
-  Future<String> _fetchAgoraToken() async {
-    final uid = widget.isCustomer ? _uidCustomer : _uidPractitioner;
-    try {
-      final url =
-          "http://localhost:16679/api/agora/token?channelName=$_channelName&uid=$uid";
-      final response =
-          await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        final token = response.body.trim();
-        if (token.length > 100) return token;
-      }
-    } catch (_) {}
-
-    // ================================================================
-    // PASTE YOUR NEW LONG TOKEN HERE (from agora.io token generator)
-    // It must be 180+ characters long!
-    return "007eJxTYFh9+t2fb/7+KZOYy187rFDZbPk6KInXjbXGLO2GG0MW4z4FBsNEc0vL5DRjgyQDM5PExKSkFEMzI0OLtEQD0yQTA0OTOXlzMxsCGRnOcS1jZGSAQBBfkCGxuKQoPz45IzEvLzUn3tDImIEBANuCIyI=";
-    // ================================================================
-  }
-
-  Future<void> _startCall() async {
-    if (_isStartingCall) return;
-    _isStartingCall = true;
-    _errorMessage = null;
-    setState(() {});
-
-    try {
-      final statuses =
-          await [Permission.camera, Permission.microphone].request();
-      if (statuses[Permission.camera] != PermissionStatus.granted ||
-          statuses[Permission.microphone] != PermissionStatus.granted) {
-        throw Exception("Camera & Microphone permission required");
-      }
-
-      await _cleanupEngine();
-
-      _engine = createAgoraRtcEngine();
-      await _engine!.initialize(const RtcEngineContext(
-        appId: _appId,
-        channelProfile: ChannelProfileType.channelProfileCommunication,
-      ));
-
-      await _engine!.enableVideo();
-      await _engine!.enableLocalVideo(true);
-      await _engine!.startPreview();
-
-      _engine!.registerEventHandler(RtcEngineEventHandler(
-        onJoinChannelSuccess: (_, __) => setState(() {
-          _localUserJoined = true;
-          _isInCall = true;
-          _currentStatus = SessionStatus.inProgress;
-        }),
-        onUserJoined: (_, remoteUid, __) => setState(() {
-          _remoteUid = remoteUid;
-          _remoteUserJoined = true;
-        }),
-        onUserOffline: (_, remoteUid, __) {
-          if (_remoteUid == remoteUid) {
-            setState(() {
-              _remoteUid = null;
-              _remoteUserJoined = false;
-              _remoteVideoPublished = false;
-            });
-          }
-        },
-        onRemoteVideoStateChanged: (_, remoteUid, state, __, ___) {
-          if (_remoteUid == remoteUid) {
-            setState(() => _remoteVideoPublished =
-                state == RemoteVideoState.remoteVideoStateDecoding);
-          }
-        },
-        onError: (err, msg) {
-          debugPrint("Agora Error: $err - $msg");
-          setState(() => _errorMessage = "Agora Error: $err");
-        },
-      ));
-
-      await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-
-      final token = await _fetchAgoraToken();
-
-      await _engine!.joinChannel(
-        token: token,
-        channelId: _channelName,
-        uid: widget.isCustomer ? _uidCustomer : _uidPractitioner,
-        options: const ChannelMediaOptions(
-          publishCameraTrack: true,
-          publishMicrophoneTrack: true,
-          clientRoleType: ClientRoleType.clientRoleBroadcaster,
-        ),
-      );
-    } catch (e) {
-      setState(() => _errorMessage = "Failed to start call: $e");
-      await _cleanupEngine();
-    } finally {
-      _isStartingCall = false;
-      if (mounted) setState(() {});
-    }
-  }
-
-  Future<void> _cleanupEngine() async {
-    if (_engine == null) return;
-    try {
-      await _engine!.leaveChannel();
-      await _engine!.stopPreview();
-      await _engine!.release(sync: true);
-    } catch (_) {}
-    _engine = null;
-  }
-
-  Future<void> _leaveCall() async {
-    await _cleanupEngine();
-    setState(() {
-      _isInCall = false;
-      _localUserJoined = false;
-      _remoteUserJoined = false;
-      _remoteVideoPublished = false;
-      _remoteUid = null;
-      _currentStatus = SessionStatus.completed;
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Session Ended"), backgroundColor: Colors.red),
-      );
-      Navigator.pop(context);
-    }
-  }
-
-  Future<void> _toggleMic() async {
-    if (_engine == null) return;
-    await _engine!.muteLocalAudioStream(!_micMuted);
-    setState(() => _micMuted = !_micMuted);
-  }
-
-  Future<void> _toggleCamera() async {
-    if (_engine == null || _isVoiceOnly) return;
-    await _engine!.muteLocalVideoStream(!_videoMuted);
-    setState(() => _videoMuted = !_videoMuted);
-  }
-
-  Future<void> _toggleVoiceMode() async {
-    if (_engine == null) return;
-    setState(() => _isVoiceOnly = !_isVoiceOnly);
-    await _engine!.enableLocalVideo(!_isVoiceOnly);
-    await _engine!.muteLocalVideoStream(_isVoiceOnly);
-    if (_isVoiceOnly)
-      await _engine!.stopPreview();
-    else
-      await _engine!.startPreview();
-  }
-
-  void _sendMessage() {
-    final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _messages.insert(0, {'sender': 'You', 'text': text, 'isMe': true});
-    });
-    _messageController.clear();
-
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() {
-          _messages.insert(0, {
-            'sender': widget.isCustomer ? 'Practitioner' : 'Customer',
-            'text': 'Thank you! I have noted your question 🌟',
-            'isMe': false,
-          });
-        });
-      }
-    });
-  }
-
-  void _openChat() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _buildChatBottomSheet(),
-    );
-  }
-
-  Widget _buildChatBottomSheet() {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.78,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(25)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.question_answer, color: Colors.deepPurple),
-                const SizedBox(width: 12),
-                const Text("Live Q&A Chat",
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const Spacer(),
-                IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _messages.isEmpty
-                ? const Center(child: Text("Start chatting..."))
-                : ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = _messages[index];
-                      final isMe = msg['isMe'] as bool;
-                      return Align(
-                        alignment:
-                            isMe ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isMe ? Colors.deepPurple : Colors.grey[200],
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(msg['sender'],
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: isMe
-                                          ? Colors.white70
-                                          : Colors.grey[700])),
-                              const SizedBox(height: 4),
-                              Text(msg['text'],
-                                  style: TextStyle(
-                                      color: isMe
-                                          ? Colors.white
-                                          : Colors.black87)),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-              left: 16,
-              right: 16,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: widget.isCustomer
-                          ? "Type your question..."
-                          : "Type your answer...",
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide.none),
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                FloatingActionButton.small(
-                  onPressed: _sendMessage,
-                  backgroundColor: Colors.deepPurple,
-                  child: const Icon(Icons.send, color: Colors.white),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _cleanupEngine();
-    _pulseController.dispose();
-    _messageController.dispose();
-    super.dispose();
-  }
+class _SessionScreenState extends State<SessionScreen> {
+  String _selectedMode = "chat";
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Stack(
-        children: [
-          _isInCall ? _buildLiveCallView() : _buildWaitingView(),
-          if (_errorMessage != null)
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Material(
-                    color: Colors.red.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(_errorMessage!,
-                          style: const TextStyle(color: Colors.white)),
-                    ),
-                  ),
-                ),
-              ),
+      appBar: AppBar(title: const Text("Consultation Options")),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const SizedBox(height: 40),
+            const Text(
+              "Choose Consultation Type",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWaitingView() {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF1E3A8A), Color(0xFF3B82F6), Color(0xFF60A5FA)],
-        ),
-      ),
-      child: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ScaleTransition(
-                  scale: _pulseAnimation,
-                  child: Container(
-                    width: 160,
-                    height: 160,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 4),
-                    ),
-                    child:
-                        const Icon(Icons.person, size: 80, color: Colors.white),
-                  ),
-                ),
-                const SizedBox(height: 40),
-                Text(
-                  widget.isCustomer
-                      ? "Connecting to Practitioner"
-                      : "Waiting for Customer",
-                  style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 60),
-                ElevatedButton.icon(
-                  onPressed: _isStartingCall ? null : _startCall,
-                  icon: const Icon(Icons.video_call),
-                  label: Text(
-                      _isStartingCall ? "Connecting..." : "Start Video Call"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 40, vertical: 18),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30)),
-                  ),
-                ),
-              ],
+            const SizedBox(height: 30),
+            RadioListTile(
+              title: const Text("Chat Consultation"),
+              value: "chat",
+              groupValue: _selectedMode,
+              onChanged: (value) {
+                setState(() => _selectedMode = value!);
+              },
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLiveCallView() {
-    if (_isVoiceOnly) {
-      return Container(
-        color: Colors.black87,
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.phone_in_talk,
-                  size: 120, color: Colors.greenAccent),
-              const SizedBox(height: 30),
-              const Text("Voice Call Active",
-                  style: TextStyle(
-                      fontSize: 28,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold)),
-              Text(
-                  "Connected with ${widget.isCustomer ? 'Practitioner' : 'Customer'}",
-                  style: const TextStyle(color: Colors.white70, fontSize: 18)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        if (_remoteUid != null && _remoteVideoPublished)
-          AgoraVideoView(
-            controller: VideoViewController.remote(
-              rtcEngine: _engine!,
-              canvas: VideoCanvas(uid: _remoteUid),
-              connection: RtcConnection(channelId: _channelName),
+            RadioListTile(
+              title: const Text("Video Consultation"),
+              value: "video",
+              groupValue: _selectedMode,
+              onChanged: (value) {
+                setState(() => _selectedMode = value!);
+              },
             ),
-          )
-        else
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (_remoteUserJoined)
-                  const CircularProgressIndicator(color: Colors.white)
-                else
-                  const Icon(Icons.videocam_off,
-                      size: 120, color: Colors.white54),
-                const SizedBox(height: 20),
-                Text(
-                    _remoteUserJoined
-                        ? "Waiting for video..."
-                        : "Waiting for other participant...",
-                    style: const TextStyle(color: Colors.white, fontSize: 20)),
-              ],
-            ),
-          ),
-        if (_localUserJoined)
-          Positioned(
-            top: 60,
-            right: 16,
-            child: Container(
-              width: 140,
-              height: 180,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white70, width: 3),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: _videoMuted
-                    ? Container(
-                        color: Colors.grey[900],
-                        child: const Center(
-                            child: Text("Camera Off",
-                                style: TextStyle(color: Colors.white70))),
-                      )
-                    : AgoraVideoView(
-                        controller: VideoViewController(
-                            rtcEngine: _engine!,
-                            canvas: const VideoCanvas(uid: 0)),
+            const Spacer(),
+            ElevatedButton(
+              onPressed: () {
+                if (_selectedMode == "chat") {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChatScreen(
+                        session: widget.session,
+                        joinData: widget.joinData,
                       ),
-              ),
-            ),
-          ),
-        Positioned(top: 16, left: 16, right: 16, child: _buildStatusBar()),
-        Positioned(bottom: 0, left: 0, right: 0, child: _buildControls()),
-      ],
-    );
-  }
-
-  Widget _buildStatusBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-            colors: [Colors.green.shade700, Colors.green.shade900]),
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Row(
-        children: [
-          Icon(_isVoiceOnly ? Icons.phone_in_talk : Icons.videocam,
-              color: Colors.white),
-          const SizedBox(width: 8),
-          Text(_isVoiceOnly ? "VOICE CALL" : "VIDEO CALL",
-              style: const TextStyle(
-                  color: Colors.white, fontWeight: FontWeight.bold)),
-          const Spacer(),
-          Text(_remoteUserJoined ? "Connected" : "Connecting...",
-              style: const TextStyle(color: Colors.white70)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControls() {
-    return Container(
-      margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(35),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildControlButton(
-              icon: _isVoiceOnly ? Icons.videocam : Icons.phone_in_talk,
-              onPressed: _toggleVoiceMode,
-              color: Colors.teal),
-          _buildControlButton(
-              icon: _micMuted ? Icons.mic_off : Icons.mic,
-              onPressed: _toggleMic,
-              color: _micMuted ? Colors.grey : Colors.orange),
-          if (!_isVoiceOnly)
-            _buildControlButton(
-                icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
-                onPressed: _toggleCamera,
-                color: _videoMuted ? Colors.grey : Colors.purple),
-          _buildControlButton(
-              icon: Icons.chat_bubble_outline,
-              onPressed: _openChat,
-              color: Colors.deepPurple),
-          _buildControlButton(
-              icon: Icons.call_end, onPressed: _leaveCall, color: Colors.red),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControlButton(
-      {required IconData icon,
-      required VoidCallback onPressed,
-      required Color color}) {
-    return SizedBox(
-      height: 55,
-      width: 55,
-      child: RawMaterialButton(
-        onPressed: onPressed,
-        elevation: 4,
-        fillColor: color,
-        shape: const CircleBorder(),
-        child: Icon(icon, color: Colors.white, size: 26),
+                    ),
+                  );
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => VideoCallScreen(
+                        session: widget.session,
+                        joinData: widget.joinData,
+                      ),
+                    ),
+                  );
+                }
+              },
+              child: const Text("Proceed"),
+            )
+          ],
+        ),
       ),
     );
   }

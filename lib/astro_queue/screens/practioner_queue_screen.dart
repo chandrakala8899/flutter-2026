@@ -81,23 +81,32 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
     try {
       final updatedSession = await ApiService.startSession(session.sessionId!);
 
-      if (updatedSession != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Session started'), backgroundColor: Colors.blue),
-        );
+      if (updatedSession == null) return;
 
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SessionScreen(
-              session: updatedSession,
-              isCustomer: false,
-              channelName: session.sessionId.toString(),
-            ),
+      final joinData = await ApiService.joinSession(
+        sessionId: session.sessionId!,
+        userId: widget.consultantId,
+        context: context,
+      );
+
+      if (joinData == null || !mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Session started'),
+          backgroundColor: Colors.blue,
+        ),
+      );
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SessionScreen(
+            session: updatedSession,
+            joinData: joinData, // ✅ PASS JOIN DATA
           ),
-        ).then((_) => _loadInitialData());
-      }
+        ),
+      ).then((_) => _loadInitialData());
     } catch (e) {
       print("Start failed: $e");
     }

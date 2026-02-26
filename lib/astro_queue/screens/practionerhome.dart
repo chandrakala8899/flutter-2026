@@ -139,17 +139,21 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     try {
       print("🔄 Loading queue & session for consultant $consultantId");
 
-      final queue = await ApiService.getPractionerQueue(consultantId.toString());
-      final session = await ApiService.getCurrentSession(consultantId.toString());
+      final queue =
+          await ApiService.getPractionerQueue(consultantId.toString());
+      final session =
+          await ApiService.getCurrentSession(consultantId.toString());
 
       if (mounted) {
         setState(() {
           queueCount = queue.length;
           currentSession = session;
-          print("Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
+          print(
+              "Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
 
           if (session != null) {
-            print("Active session details: ID=${session.sessionId}, status=${session.status?.name ?? 'unknown'}");
+            print(
+                "Active session details: ID=${session.sessionId}, status=${session.status?.name ?? 'unknown'}");
           } else {
             print("No active/called session returned from backend");
           }
@@ -180,6 +184,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: Text(
           "👨‍⚕️ ${currentUser?.name ?? 'Practitioner Dashboard'}",
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -196,7 +201,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
       body: errorMessage != null
           ? _buildErrorScreen()
           : isLoading
-              ? const Center(child: CircularProgressIndicator(color: Colors.green))
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.green))
               : consultantId == 0
                   ? const Center(
                       child: Column(
@@ -205,7 +211,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                           CircularProgressIndicator(color: Colors.green),
                           SizedBox(height: 16),
                           Text("Checking practitioner login...",
-                              style: TextStyle(fontSize: 16, color: Colors.grey)),
+                              style:
+                                  TextStyle(fontSize: 16, color: Colors.grey)),
                         ],
                       ),
                     )
@@ -250,15 +257,18 @@ class _PractitionerHomeState extends State<PractitionerHome> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade600,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
               icon: const Icon(Icons.refresh),
               label: const Text("Retry"),
             ),
             const SizedBox(height: 16),
             TextButton.icon(
-              onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/login'),
               icon: const Icon(Icons.logout),
               label: const Text("Logout"),
             ),
@@ -313,9 +323,11 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade600,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
                     elevation: 8,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
@@ -330,9 +342,11 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade700,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 16),
                       elevation: 8,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
                 ),
@@ -340,8 +354,6 @@ class _PractitionerHomeState extends State<PractitionerHome> {
             ],
           ),
         ),
-
-        const Spacer(),
 
         // Welcome Card
         Container(
@@ -465,7 +477,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PractitionerQueueScreen(consultantId: consultantId),
+        builder: (context) =>
+            PractitionerQueueScreen(consultantId: consultantId),
       ),
     ).then((_) => _refreshData());
   }
@@ -473,7 +486,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
   void _joinCurrentSession() async {
     if (currentSession == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No active or called session to join")),
+        const SnackBar(content: Text("No active session to join")),
       );
       return;
     }
@@ -489,23 +502,14 @@ class _PractitionerHomeState extends State<PractitionerHome> {
 
       if (joinData == null || !mounted) return;
 
-      final channel = joinData['channel'] as String?;
-      final token = joinData['token'] as String?;
-
-      if (channel == null || token == null) {
-        throw Exception("Invalid join response from server");
-      }
-
-      print("Join success - Channel: $channel, Token received");
+      print("Join success - Channel: ${joinData["channelName"]}");
 
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => SessionScreen(
-            session: currentSession,
-            isCustomer: false,
-            channelName: channel,
-            token: token,
+            session: currentSession!,
+            joinData: joinData, // ✅ PASS JOIN DATA HERE
           ),
         ),
       ).then((_) => _refreshData());
@@ -516,7 +520,6 @@ class _PractitionerHomeState extends State<PractitionerHome> {
           SnackBar(
             content: Text("Failed to join call: $e"),
             backgroundColor: Colors.red.shade700,
-            duration: const Duration(seconds: 5),
           ),
         );
       }
