@@ -52,6 +52,7 @@ class _LoginScreenState extends State<LoginScreen> {
         "role": response['role'], // Keep original casing: "Practioner"
         "message": response['message']
       };
+      print("Login Response ID: ${userData}");
 
       // ✅ Store user
       await ApiService.storeUser(UserModel.fromLoginJson(userData));

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
+import 'package:flutter_learning/astro_queue/screens/session_option_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
 
 class CustomerQueueScreen extends StatefulWidget {
@@ -49,10 +50,10 @@ class _CustomerQueueScreenState extends State<CustomerQueueScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SessionScreen(
+        builder: (_) => SessionOptionScreen(
           session: session,
           isCustomer: true,
-          channelName: session.sessionId.toString(),
+          // channelName: session.sessionId.toString(),
         ),
       ),
     );

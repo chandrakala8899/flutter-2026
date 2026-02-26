@@ -4,6 +4,7 @@ import 'package:flutter_learning/astro_queue/model/enumsession.dart';
 import 'package:flutter_learning/astro_queue/model/session_request_model.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
+import 'package:flutter_learning/astro_queue/screens/session_option_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
 import 'package:flutter_learning/astro_queue/screens/customer_queue_screen.dart';
 import 'package:flutter_learning/astro_queue/services/websocketservice.dart';
@@ -206,10 +207,9 @@ class _CustomerHomeState extends State<CustomerHome> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SessionScreen(
+        builder: (_) => SessionOptionScreen(
           session: session,
           isCustomer: true,
-          channelName: session.sessionId.toString(),
         ),
       ),
     ).then((_) {
@@ -237,10 +237,9 @@ class _CustomerHomeState extends State<CustomerHome> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SessionScreen(
+        builder: (_) => SessionOptionScreen(
           session: session,
           isCustomer: true,
-          channelName: session.sessionId.toString(),
         ),
       ),
     ).then((_) => _loadData(showLoading: false));
@@ -446,28 +445,28 @@ class _CustomerHomeState extends State<CustomerHome> {
                   ],
 
                   // Active sessions
-                  // if (activeSessions.isNotEmpty) ...[
-                  //   const Text(
-                  //     "🎥 Active / In Progress",
-                  //     style:
-                  //         TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                  //   ),
-                  //   const SizedBox(height: 12),
-                  //   ...activeSessions.map((s) => Card(
-                  //         margin: const EdgeInsets.only(bottom: 12),
-                  //         child: ListTile(
-                  //           leading: const Icon(Icons.video_call,
-                  //               color: Colors.green),
-                  //           title: Text("Session #${s.sessionNumber}"),
-                  //           subtitle: Text(
-                  //               "Status: ${s.status?.name.toUpperCase() ?? '?'}"),
-                  //           trailing:
-                  //               const Icon(Icons.arrow_forward_ios, size: 16),
-                  //           onTap: () => _openSession(s),
-                  //         ),
-                  //       )),
-                  //   const SizedBox(height: 24),
-                  // ],
+                  if (activeSessions.isNotEmpty) ...[
+                    const Text(
+                      "🎥 Active / In Progress",
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 12),
+                    ...activeSessions.map((s) => Card(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: ListTile(
+                            leading: const Icon(Icons.video_call,
+                                color: Colors.green),
+                            title: Text("Session #${s.sessionNumber}"),
+                            subtitle: Text(
+                                "Status: ${s.status?.name.toUpperCase() ?? '?'}"),
+                            trailing:
+                                const Icon(Icons.arrow_forward_ios, size: 16),
+                            onTap: () => _openSession(s),
+                          ),
+                        )),
+                    const SizedBox(height: 24),
+                  ],
 
                   // Practitioners list
                   const Text(

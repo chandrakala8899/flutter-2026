@@ -3,7 +3,7 @@ import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/screens/practioner_queue_screen.dart';
-import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
+import 'package:flutter_learning/astro_queue/screens/session_option_screen.dart';
 import 'package:flutter_learning/astro_queue/services/websocketservice.dart';
 
 class PractitionerHome extends StatefulWidget {
@@ -139,17 +139,21 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     try {
       print("🔄 Loading queue & session for consultant $consultantId");
 
-      final queue = await ApiService.getPractionerQueue(consultantId.toString());
-      final session = await ApiService.getCurrentSession(consultantId.toString());
+      final queue =
+          await ApiService.getPractionerQueue(consultantId.toString());
+      final session =
+          await ApiService.getCurrentSession(consultantId.toString());
 
       if (mounted) {
         setState(() {
           queueCount = queue.length;
           currentSession = session;
-          print("Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
+          print(
+              "Queue: $queueCount | Session: ${session != null ? 'Active' : 'None'}");
 
           if (session != null) {
-            print("Active session details: ID=${session.sessionId}, status=${session.status?.name ?? 'unknown'}");
+            print(
+                "Active session details: ID=${session.sessionId}, status=${session.status?.name ?? 'unknown'}");
           } else {
             print("No active/called session returned from backend");
           }
@@ -196,7 +200,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
       body: errorMessage != null
           ? _buildErrorScreen()
           : isLoading
-              ? const Center(child: CircularProgressIndicator(color: Colors.green))
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.green))
               : consultantId == 0
                   ? const Center(
                       child: Column(
@@ -205,7 +210,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                           CircularProgressIndicator(color: Colors.green),
                           SizedBox(height: 16),
                           Text("Checking practitioner login...",
-                              style: TextStyle(fontSize: 16, color: Colors.grey)),
+                              style:
+                                  TextStyle(fontSize: 16, color: Colors.grey)),
                         ],
                       ),
                     )
@@ -250,15 +256,18 @@ class _PractitionerHomeState extends State<PractitionerHome> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade600,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
               icon: const Icon(Icons.refresh),
               label: const Text("Retry"),
             ),
             const SizedBox(height: 16),
             TextButton.icon(
-              onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/login'),
               icon: const Icon(Icons.logout),
               label: const Text("Logout"),
             ),
@@ -313,9 +322,11 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.green.shade600,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
                     elevation: 8,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                   ),
                 ),
               ),
@@ -330,9 +341,11 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade700,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 16),
                       elevation: 8,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
                 ),
@@ -340,10 +353,6 @@ class _PractitionerHomeState extends State<PractitionerHome> {
             ],
           ),
         ),
-
-        const Spacer(),
-
-        // Welcome Card
         Container(
           margin: const EdgeInsets.all(20),
           padding: const EdgeInsets.all(28),
@@ -465,7 +474,8 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PractitionerQueueScreen(consultantId: consultantId),
+        builder: (context) =>
+            PractitionerQueueScreen(consultantId: consultantId),
       ),
     ).then((_) => _refreshData());
   }
@@ -501,11 +511,9 @@ class _PractitionerHomeState extends State<PractitionerHome> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => SessionScreen(
+          builder: (context) => SessionOptionScreen(
             session: currentSession,
-            isCustomer: false,
-            channelName: channel,
-            token: token,
+            isCustomer: false, // or true
           ),
         ),
       ).then((_) => _refreshData());

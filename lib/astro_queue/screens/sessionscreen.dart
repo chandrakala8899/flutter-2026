@@ -1,10 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:flutter_learning/astro_queue/services/chat_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+
+enum CallType {
+  chat,
+  audio,
+  video,
+}
 
 class SessionScreen extends StatefulWidget {
   final ConsultationSessionResponse? session;
@@ -12,10 +20,13 @@ class SessionScreen extends StatefulWidget {
   final String? channelName;
   final String? token;
 
+  final CallType callType;
+
   const SessionScreen({
     super.key,
     this.session,
     required this.isCustomer,
+    required this.callType,
     this.channelName,
     this.token,
   });
@@ -44,30 +55,65 @@ class _SessionScreenState extends State<SessionScreen>
   late Animation<double> _pulseAnimation;
 
   final TextEditingController _messageController = TextEditingController();
-  final List<Map<String, dynamic>> _messages = [];
 
   static const String _channelName = "astro_channel_123";
-  static const int _uidCustomer = 1001;
-  static const int _uidPractitioner = 1002;
+  static const int _uidCustomer = 1;
+  static const int _uidPractitioner = 2;
   static const String _appId = "1a799cf30b064aabbd16218fa05b4014";
 
   bool _isStartingCall = false;
   String? _errorMessage;
 
+  late ChatService _chatService;
+  List<Map<String, dynamic>> _messages = [];
+
   @override
   void initState() {
     super.initState();
+
     _pulseController =
         AnimationController(vsync: this, duration: const Duration(seconds: 2));
     _pulseAnimation =
         Tween<double>(begin: 0.9, end: 1.1).animate(_pulseController);
     _pulseController.repeat(reverse: true);
 
-    _messages.add({
-      'sender': 'System',
-      'text': 'Session started! Ask questions or switch to voice mode anytime.',
-      'isMe': false,
-    });
+    _chatService = ChatService(
+      onMessageReceived: (data) {
+        final messageId = data["id"];
+
+        final alreadyExists = _messages.any((m) => m["id"] == messageId);
+
+        if (!alreadyExists) {
+          setState(() {
+            _messages.insert(0, {
+              "id": messageId,
+              "sender": data["senderName"]?.toString() ?? "Unknown",
+              "text": data["message"]?.toString() ?? "",
+              "isMe": data["senderId"] ==
+                  (widget.isCustomer ? _uidCustomer : _uidPractitioner),
+            });
+          });
+        }
+      },
+    );
+
+    if (widget.session != null) {
+      _chatService.connect(
+        (widget.isCustomer ? _uidCustomer : _uidPractitioner).toString(),
+        sessionId: widget.session!.sessionId!,
+      );
+    }
+
+    if (widget.callType == CallType.audio ||
+        widget.callType == CallType.video) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (widget.callType == CallType.audio) {
+          _isVoiceOnly = true;
+        }
+        _startCall();
+      });
+    }
+    _loadChatHistory();
   }
 
   Future<String> _fetchAgoraToken() async {
@@ -86,7 +132,7 @@ class _SessionScreenState extends State<SessionScreen>
     // ================================================================
     // PASTE YOUR NEW LONG TOKEN HERE (from agora.io token generator)
     // It must be 180+ characters long!
-    return "007eJxTYFh9+t2fb/7+KZOYy187rFDZbPk6KInXjbXGLO2GG0MW4z4FBsNEc0vL5DRjgyQDM5PExKSkFEMzI0OLtEQD0yQTA0OTOXlzMxsCGRnOcS1jZGSAQBBfkCGxuKQoPz45IzEvLzUn3tDImIEBANuCIyI=";
+    return "007eJxTYMh/8rSYV2DRDN3VRmmaftfL2/yO2zDfjAkUds8+VH21XVqBwTDR3NIyOc3YIMnAzCQxMSkpxdDMyNAiLdHANMnEwNBk6d35mQ2BjAzvf6cxMzJAIIgvyJBYXFKUH5+ckZiXl5oTb2hkzMAAALm9I+M=";
     // ================================================================
   }
 
@@ -99,6 +145,7 @@ class _SessionScreenState extends State<SessionScreen>
     try {
       final statuses =
           await [Permission.camera, Permission.microphone].request();
+
       if (statuses[Permission.camera] != PermissionStatus.granted ||
           statuses[Permission.microphone] != PermissionStatus.granted) {
         throw Exception("Camera & Microphone permission required");
@@ -112,9 +159,18 @@ class _SessionScreenState extends State<SessionScreen>
         channelProfile: ChannelProfileType.channelProfileCommunication,
       ));
 
-      await _engine!.enableVideo();
-      await _engine!.enableLocalVideo(true);
-      await _engine!.startPreview();
+      await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+
+      // 🔥 FIXED AUDIO + VIDEO INITIALIZATION
+      await _engine!.enableAudio();
+
+      if (_isVoiceOnly) {
+        await _engine!.disableVideo();
+      } else {
+        await _engine!.enableVideo();
+        await _engine!.enableLocalVideo(true);
+        await _engine!.startPreview();
+      }
 
       _engine!.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (_, __) => setState(() {
@@ -147,16 +203,18 @@ class _SessionScreenState extends State<SessionScreen>
         },
       ));
 
-      await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-
       final token = await _fetchAgoraToken();
+      await _engine!.setAudioProfile(
+        profile: AudioProfileType.audioProfileMusicHighQuality,
+        scenario: AudioScenarioType.audioScenarioChatroom,
+      );
 
       await _engine!.joinChannel(
         token: token,
         channelId: _channelName,
         uid: widget.isCustomer ? _uidCustomer : _uidPractitioner,
-        options: const ChannelMediaOptions(
-          publishCameraTrack: true,
+        options: ChannelMediaOptions(
+          publishCameraTrack: !_isVoiceOnly, // 🔥 FIXED
           publishMicrophoneTrack: true,
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
         ),
@@ -201,8 +259,9 @@ class _SessionScreenState extends State<SessionScreen>
 
   Future<void> _toggleMic() async {
     if (_engine == null) return;
-    await _engine!.muteLocalAudioStream(!_micMuted);
+
     setState(() => _micMuted = !_micMuted);
+    await _engine!.muteLocalAudioStream(_micMuted);
   }
 
   Future<void> _toggleCamera() async {
@@ -213,34 +272,36 @@ class _SessionScreenState extends State<SessionScreen>
 
   Future<void> _toggleVoiceMode() async {
     if (_engine == null) return;
+
     setState(() => _isVoiceOnly = !_isVoiceOnly);
-    await _engine!.enableLocalVideo(!_isVoiceOnly);
-    await _engine!.muteLocalVideoStream(_isVoiceOnly);
-    if (_isVoiceOnly)
+
+    if (_isVoiceOnly) {
+      // Switch to Audio-only
+      await _engine!.muteLocalVideoStream(true);
+      await _engine!.disableVideo();
       await _engine!.stopPreview();
-    else
+    } else {
+      // Switch back to Video
+      await _engine!.enableVideo();
+      await _engine!.enableLocalVideo(true);
+      await _engine!.muteLocalVideoStream(false);
       await _engine!.startPreview();
+    }
   }
 
   void _sendMessage() {
     final text = _messageController.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _messages.insert(0, {'sender': 'You', 'text': text, 'isMe': true});
-    });
-    _messageController.clear();
+    if (text.isEmpty || widget.session == null) return;
 
-    Future.delayed(const Duration(seconds: 1), () {
-      if (mounted) {
-        setState(() {
-          _messages.insert(0, {
-            'sender': widget.isCustomer ? 'Practitioner' : 'Customer',
-            'text': 'Thank you! I have noted your question 🌟',
-            'isMe': false,
-          });
-        });
-      }
-    });
+    final senderId = widget.isCustomer ? _uidCustomer : _uidPractitioner;
+
+    _chatService.sendMessage(
+      sessionId: widget.session!.sessionId!,
+      senderId: senderId,
+      message: text,
+    );
+
+    _messageController.clear();
   }
 
   void _openChat() {
@@ -253,114 +314,153 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   Widget _buildChatBottomSheet() {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.78,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(25)),
-            ),
-            child: Row(
+    return SafeArea(
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+        ),
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.9,
+          minChildSize: 0.2,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Column(
               children: [
-                const Icon(Icons.question_answer, color: Colors.deepPurple),
-                const SizedBox(width: 12),
-                const Text("Live Q&A Chat",
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                const Spacer(),
-                IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close)),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _messages.isEmpty
-                ? const Center(child: Text("Start chatting..."))
-                : ListView.builder(
-                    reverse: true,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _messages.length,
-                    itemBuilder: (context, index) {
-                      final msg = _messages[index];
-                      final isMe = msg['isMe'] as bool;
-                      return Align(
-                        alignment:
-                            isMe ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: isMe ? Colors.deepPurple : Colors.grey[200],
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(msg['sender'],
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: isMe
-                                          ? Colors.white70
-                                          : Colors.grey[700])),
-                              const SizedBox(height: 4),
-                              Text(msg['text'],
-                                  style: TextStyle(
-                                      color: isMe
-                                          ? Colors.white
-                                          : Colors.black87)),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple.shade50,
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(25)),
                   ),
-          ),
-          Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-              left: 16,
-              right: 16,
-            ),
-            child: Row(
-              children: [
+                  child: Row(
+                    children: [
+                      const Icon(Icons.question_answer,
+                          color: Colors.deepPurple),
+                      const SizedBox(width: 12),
+                      const Text("Live Q&A Chat",
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close)),
+                    ],
+                  ),
+                ),
                 Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: widget.isCustomer
-                          ? "Type your question..."
-                          : "Type your answer...",
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide.none),
-                    ),
-                    onSubmitted: (_) => _sendMessage(),
+                  child: _messages.isEmpty
+                      ? const Center(child: Text("Start chatting..."))
+                      : ListView.builder(
+                          reverse: true,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _messages[index];
+                            final isMe = msg['isMe'] == true;
+                            return Align(
+                              alignment: isMe
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: isMe
+                                      ? Colors.deepPurple
+                                      : Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(msg['sender']?.toString() ?? "Unknown",
+                                        style: TextStyle(
+                                            fontSize: 12,
+                                            color: isMe
+                                                ? Colors.white70
+                                                : Colors.grey[700])),
+                                    const SizedBox(height: 4),
+                                    Text(msg['text']?.toString() ?? "",
+                                        style: TextStyle(
+                                            color: isMe
+                                                ? Colors.white
+                                                : Colors.black87)),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                    left: 16,
+                    right: 16,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          decoration: InputDecoration(
+                            hintText: widget.isCustomer
+                                ? "Type your question..."
+                                : "Type your answer...",
+                            filled: true,
+                            fillColor: Colors.grey[100],
+                            border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(30),
+                                borderSide: BorderSide.none),
+                          ),
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      FloatingActionButton.small(
+                        onPressed: _sendMessage,
+                        backgroundColor: Colors.deepPurple,
+                        child: const Icon(Icons.send, color: Colors.white),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 12),
-                FloatingActionButton.small(
-                  onPressed: _sendMessage,
-                  backgroundColor: Colors.deepPurple,
-                  child: const Icon(Icons.send, color: Colors.white),
-                ),
               ],
-            ),
-          ),
-        ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  Future<void> _loadChatHistory() async {
+    if (widget.session == null) return;
+
+    final response = await http.get(
+      Uri.parse("http://localhost:16679/api/chat/${widget.session!.sessionId}"),
+    );
+
+    if (response.statusCode == 200) {
+      final List data = json.decode(response.body);
+
+      setState(() {
+        _messages = data
+            .map((msg) => {
+                  "id": msg["id"], // 🔥 IMPORTANT
+                  "sender": msg["senderName"]?.toString() ?? "Unknown",
+                  "text": msg["message"]?.toString() ?? "",
+                  "isMe": msg["senderId"] ==
+                      (widget.isCustomer ? _uidCustomer : _uidPractitioner),
+                })
+            .toList()
+            .reversed
+            .toList();
+      });
+    }
   }
 
   @override
@@ -368,11 +468,23 @@ class _SessionScreenState extends State<SessionScreen>
     _cleanupEngine();
     _pulseController.dispose();
     _messageController.dispose();
+    _chatService.disconnect();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (widget.callType == CallType.chat) {
+      return Scaffold(
+        appBar: AppBar(title: const Text("Live Chat")),
+        body: _buildChatBottomSheet(),
+      );
+    }
+
+    if (widget.callType == CallType.audio) {
+      _isVoiceOnly = true;
+    }
+
     return Scaffold(
       body: Stack(
         children: [
