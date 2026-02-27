@@ -31,7 +31,9 @@ dependencies:
   webview_flutter_android: ^4.10.11
   webview_flutter_wkwebview: ^3.23.6
   stomp_dart_client: ^3.0.1
-
+  flutter_sound: ^9.2.13
+  path_provider: ^2.1.2
+  speech_to_text: ^7.3.0
 
 dev_dependencies:
   flutter_test:

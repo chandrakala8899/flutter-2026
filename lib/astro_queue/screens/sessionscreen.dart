@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:flutter_learning/astro_queue/screens/audio_call.dart';
+import 'package:flutter_learning/astro_queue/screens/chat_screen.dart';
+import 'package:flutter_learning/astro_queue/screens/vedio_call_screen.dart';
 import 'package:flutter_learning/astro_queue/services/chat_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
@@ -113,7 +116,7 @@ class _SessionScreenState extends State<SessionScreen>
         _startCall();
       });
     }
-    _loadChatHistory();
+    _getChatHistory();
   }
 
   Future<String> _fetchAgoraToken() async {
@@ -314,94 +317,158 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   Widget _buildChatBottomSheet() {
+    final participantName =
+        widget.isCustomer ? "Practitioner Chat" : "Customer Chat";
+
     return SafeArea(
       child: Container(
         decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+          color: Color(0xFFF2F4F8),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
         child: DraggableScrollableSheet(
           expand: false,
-          initialChildSize: 0.9,
-          minChildSize: 0.2,
-          maxChildSize: 0.95,
+          initialChildSize: 0.95,
+          minChildSize: 0.3,
+          maxChildSize: 0.98,
           builder: (context, scrollController) {
             return Column(
               children: [
+                /// ⭐ Header
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
                   decoration: BoxDecoration(
-                    color: Colors.deepPurple.shade50,
+                    color: Colors.deepPurple.shade600,
                     borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(25)),
+                        const BorderRadius.vertical(top: Radius.circular(28)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.question_answer,
-                          color: Colors.deepPurple),
+                      const Icon(Icons.person, color: Colors.white),
                       const SizedBox(width: 12),
-                      const Text("Live Q&A Chat",
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold)),
-                      const Spacer(),
+                      Expanded(
+                        child: Text(
+                          participantName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                       IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close)),
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close, color: Colors.white),
+                      )
                     ],
                   ),
                 ),
+
+                /// ⭐ Messages
                 Expanded(
-                  child: _messages.isEmpty
-                      ? const Center(child: Text("Start chatting..."))
-                      : ListView.builder(
-                          reverse: true,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _messages.length,
-                          itemBuilder: (context, index) {
-                            final msg = _messages[index];
-                            final isMe = msg['isMe'] == true;
-                            return Align(
-                              alignment: isMe
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: isMe
-                                      ? Colors.deepPurple
-                                      : Colors.grey[200],
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(msg['sender']?.toString() ?? "Unknown",
+                  child: Container(
+                    decoration: const BoxDecoration(
+                      image: DecorationImage(
+                        fit: BoxFit.cover,
+                        image: AssetImage("assets/chat_bg.png"),
+                      ),
+                    ),
+                    child: _messages.isEmpty
+                        ? const Center(
+                            child: Text("Start conversation..."),
+                          )
+                        : ListView.builder(
+                            reverse: true,
+                            padding: const EdgeInsets.all(18),
+                            itemCount: _messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = _messages[index];
+                              final isMe = msg['isMe'] == true;
+
+                              return Align(
+                                alignment: isMe
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  margin:
+                                      const EdgeInsets.symmetric(vertical: 6),
+                                  padding: const EdgeInsets.all(14),
+                                  constraints: BoxConstraints(
+                                    maxWidth:
+                                        MediaQuery.of(context).size.width *
+                                            0.75,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        isMe ? Colors.deepPurple : Colors.white,
+                                    borderRadius: BorderRadius.circular(18),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        blurRadius: 3,
+                                        color: Colors.black12,
+                                      )
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      /// Sender Name
+                                      Text(
+                                        msg['sender'] ?? "Unknown",
                                         style: TextStyle(
-                                            fontSize: 12,
-                                            color: isMe
-                                                ? Colors.white70
-                                                : Colors.grey[700])),
-                                    const SizedBox(height: 4),
-                                    Text(msg['text']?.toString() ?? "",
+                                          fontSize: 12,
+                                          color: isMe
+                                              ? Colors.white70
+                                              : Colors.grey,
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 6),
+
+                                      /// Message
+                                      Text(
+                                        msg['text'] ?? "",
                                         style: TextStyle(
+                                          fontSize: 15,
+                                          color: isMe
+                                              ? Colors.white
+                                              : Colors.black87,
+                                        ),
+                                      ),
+
+                                      const SizedBox(height: 6),
+
+                                      /// Time
+                                      if (msg['time'] != null)
+                                        Text(
+                                          msg['time'],
+                                          style: TextStyle(
+                                            fontSize: 10,
                                             color: isMe
-                                                ? Colors.white
-                                                : Colors.black87)),
-                                  ],
+                                                ? Colors.white60
+                                                : Colors.grey,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                Padding(
-                  padding: EdgeInsets.only(
-                    bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                    left: 16,
-                    right: 16,
+                              );
+                            },
+                          ),
                   ),
+                ),
+
+                /// ⭐ Bottom Input Area
+                Container(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+                    left: 14,
+                    right: 14,
+                    top: 10,
+                  ),
+                  color: Colors.white,
                   child: Row(
                     children: [
                       Expanded(
@@ -409,23 +476,28 @@ class _SessionScreenState extends State<SessionScreen>
                           controller: _messageController,
                           decoration: InputDecoration(
                             hintText: widget.isCustomer
-                                ? "Type your question..."
-                                : "Type your answer...",
+                                ? "Ask your question..."
+                                : "Write answer...",
                             filled: true,
-                            fillColor: Colors.grey[100],
+                            fillColor: Colors.grey.shade100,
                             border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(30),
-                                borderSide: BorderSide.none),
+                              borderRadius: BorderRadius.circular(30),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding:
+                                const EdgeInsets.symmetric(horizontal: 20),
                           ),
                           onSubmitted: (_) => _sendMessage(),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      FloatingActionButton.small(
-                        onPressed: _sendMessage,
+                      const SizedBox(width: 10),
+                      CircleAvatar(
                         backgroundColor: Colors.deepPurple,
-                        child: const Icon(Icons.send, color: Colors.white),
-                      ),
+                        child: IconButton(
+                          icon: const Icon(Icons.send, color: Colors.white),
+                          onPressed: _sendMessage,
+                        ),
+                      )
                     ],
                   ),
                 ),
@@ -437,30 +509,28 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-  Future<void> _loadChatHistory() async {
-    if (widget.session == null) return;
+  Future<List<Map<String, dynamic>>> _getChatHistory() async {
+    if (widget.session == null) return [];
 
     final response = await http.get(
       Uri.parse("http://localhost:16679/api/chat/${widget.session!.sessionId}"),
     );
 
-    if (response.statusCode == 200) {
-      final List data = json.decode(response.body);
+    if (response.statusCode != 200) return [];
 
-      setState(() {
-        _messages = data
-            .map((msg) => {
-                  "id": msg["id"], // 🔥 IMPORTANT
-                  "sender": msg["senderName"]?.toString() ?? "Unknown",
-                  "text": msg["message"]?.toString() ?? "",
-                  "isMe": msg["senderId"] ==
-                      (widget.isCustomer ? _uidCustomer : _uidPractitioner),
-                })
-            .toList()
-            .reversed
-            .toList();
-      });
-    }
+    final List data = json.decode(response.body);
+
+    return data
+        .map((msg) => {
+              "id": msg["id"],
+              "sender": msg["senderName"] ?? "Unknown",
+              "text": msg["message"] ?? "",
+              "isMe": msg["senderId"] ==
+                  (widget.isCustomer ? _uidCustomer : _uidPractitioner),
+            })
+        .toList()
+        .reversed
+        .toList();
   }
 
   @override
@@ -475,40 +545,36 @@ class _SessionScreenState extends State<SessionScreen>
   @override
   Widget build(BuildContext context) {
     if (widget.callType == CallType.chat) {
-      return Scaffold(
-        appBar: AppBar(title: const Text("Live Chat")),
-        body: _buildChatBottomSheet(),
+      return FutureBuilder<List<Map<String, dynamic>>>(
+        future: _getChatHistory(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          return ChatScreen(
+            session: widget.session!,
+            isCustomer: widget.isCustomer,
+            chatService: _chatService,
+            initialMessages: snapshot.data!,
+          );
+        },
+      );
+    }
+    if (widget.callType == CallType.audio) {
+      return AudioCallScreen(
+        session: widget.session!,
+        isCustomer: widget.isCustomer,
+        engine: _engine,
       );
     }
 
-    if (widget.callType == CallType.audio) {
-      _isVoiceOnly = true;
-    }
-
-    return Scaffold(
-      body: Stack(
-        children: [
-          _isInCall ? _buildLiveCallView() : _buildWaitingView(),
-          if (_errorMessage != null)
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Material(
-                    color: Colors.red.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(_errorMessage!,
-                          style: const TextStyle(color: Colors.white)),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+    return VideoCallScreen(
+      session: widget.session!,
+      isCustomer: widget.isCustomer,
+      engine: _engine,
     );
   }
 

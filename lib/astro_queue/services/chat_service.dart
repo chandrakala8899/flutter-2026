@@ -3,7 +3,7 @@ import 'package:stomp_dart_client/stomp_dart_client.dart';
 
 class ChatService {
   StompClient? _client;
-  final Function(Map<String, dynamic>) onMessageReceived;
+  Function(Map<String, dynamic>) onMessageReceived;
 
   bool _isConnected = false;
   int? _sessionId;
@@ -82,6 +82,8 @@ class ChatService {
       }),
     );
   }
+
+  
 
   void disconnect() {
     _client?.deactivate();
