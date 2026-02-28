@@ -148,7 +148,7 @@ class SessionOptionScreen extends StatelessWidget {
           MaterialPageRoute(
             builder: (_) => SessionScreen(
               session: session,
-              isCustomer: isCustomer,
+              isCustomer: false,
               callType: callType,
             ),
           ),
