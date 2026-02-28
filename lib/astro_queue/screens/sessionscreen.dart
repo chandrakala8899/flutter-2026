@@ -1,15 +1,19 @@
 import 'dart:async';
-import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:flutter_learning/astro_queue/screens/audio_call.dart';
-import 'package:flutter_learning/astro_queue/screens/chat_screen.dart';
+import 'package:flutter_learning/astro_queue/api_service.dart';
+import 'package:flutter_learning/astro_queue/screens/agora_chat_ui.dart';
 import 'package:flutter_learning/astro_queue/screens/vedio_call_screen.dart';
 import 'package:flutter_learning/astro_queue/services/chat_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+
+void _log(String msg) {
+  if (kDebugMode) debugPrint(msg);
+}
 
 enum CallType { chat, audio, video }
 
@@ -59,16 +63,19 @@ class _SessionScreenState extends State<SessionScreen>
 
   bool _isStartingCall = false;
   String? _errorMessage;
+  late ApiService _apiService;
+
+  // ── WebSocket ChatService ONLY for audio/video in-call text chat ────────────
+  // NOT used for CallType.chat — Agora IM SDK handles that entirely.
   late ChatService _chatService;
   List<Map<String, dynamic>> _messages = [];
 
-  // Stable ValueKeys (fixes "Multiple widgets used the same GlobalKey")
   static const ValueKey _remoteVideoKey = ValueKey('remote_video');
-  static const ValueKey _localVideoKey = ValueKey('local_video');
 
   @override
   void initState() {
     super.initState();
+    _apiService = ApiService();
 
     _pulseController =
         AnimationController(vsync: this, duration: const Duration(seconds: 2));
@@ -76,31 +83,34 @@ class _SessionScreenState extends State<SessionScreen>
         Tween<double>(begin: 0.9, end: 1.1).animate(_pulseController);
     _pulseController.repeat(reverse: true);
 
-    _chatService = ChatService(
-      onMessageReceived: (data) {
-        final messageId = data["id"];
-        final alreadyExists = _messages.any((m) => m["id"] == messageId);
-        if (!alreadyExists) {
-          setState(() {
-            _messages.insert(0, {
-              "id": messageId,
-              "sender": data["senderName"]?.toString() ?? "Unknown",
-              "text": data["message"]?.toString() ?? "",
-              "isMe": data["senderId"] ==
-                  (widget.isCustomer ? _uidCustomer : _uidPractitioner),
+    // WebSocket only needed for audio/video side-chat, not for CallType.chat
+    if (widget.callType != CallType.chat) {
+      _chatService = ChatService(
+        onMessageReceived: (data) {
+          final messageId = data["id"];
+          final alreadyExists = _messages.any((m) => m["id"] == messageId);
+          if (!alreadyExists) {
+            setState(() {
+              _messages.insert(0, {
+                "id": messageId,
+                "sender": data["senderName"]?.toString() ?? "Unknown",
+                "text": data["message"]?.toString() ?? "",
+                "isMe": data["senderId"] ==
+                    (widget.isCustomer ? _uidCustomer : _uidPractitioner),
+              });
             });
-          });
-        }
-      },
-    );
-
-    if (widget.session != null) {
-      _chatService.connect(
-        (widget.isCustomer ? _uidCustomer : _uidPractitioner).toString(),
-        sessionId: widget.session!.sessionId!,
+          }
+        },
       );
+      if (widget.session != null) {
+        _chatService.connect(
+          (widget.isCustomer ? _uidCustomer : _uidPractitioner).toString(),
+          sessionId: widget.session!.sessionId!,
+        );
+      }
     }
 
+    // Auto-start audio/video call
     if (widget.callType == CallType.audio ||
         widget.callType == CallType.video) {
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -108,14 +118,17 @@ class _SessionScreenState extends State<SessionScreen>
         _startCall();
       });
     }
-    _getChatHistory();
+
+    // CallType.chat → nothing to do here.
+    // AgoraChatScreen handles SDK init, token fetch, login, and history itself.
   }
 
+  // ─── RTC TOKEN (for audio/video only) ──────────────────────────────────────
   Future<String> _fetchAgoraToken() async {
     final uid = widget.isCustomer ? _uidCustomer : _uidPractitioner;
     try {
       final url =
-          "http://192.168.1:16679/api/agora/token?channelName=$_channelName&uid=$uid"; // ← CHANGE TO YOUR PC IP
+          "http://192.168.1:16679/api/agora/token?channelName=$_channelName&uid=$uid";
       final response =
           await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
@@ -123,12 +136,13 @@ class _SessionScreenState extends State<SessionScreen>
         if (token.length > 100) return token;
       }
     } catch (e) {
-      debugPrint("Token fetch failed: $e");
+      _log("RTC token fetch failed: $e");
     }
-
+    // Fallback temp token
     return "007eJxTYLBkXxwuPCOZVyvnwefljzwPqiX1LA/bwXvro/NT9olxDVsVGAwTzS0tk9OMDZIMzEwSE5OSUgzNjAwt0hINTJNMDAxNXDYuymwIZGSYnBXCxMgAgSC+IENicUlRfnxyRmJeXmpOvKGRMQMDANbDI44=";
   }
 
+  // ─── START RTC CALL ────────────────────────────────────────────────────────
   Future<void> _startCall() async {
     if (_isStartingCall) return;
     _isStartingCall = true;
@@ -153,31 +167,33 @@ class _SessionScreenState extends State<SessionScreen>
 
       _engine!.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (connection, elapsed) {
-          debugPrint("✅ JOINED: $_channelName");
-          if (mounted)
+          _log("✅ JOINED: $_channelName");
+          if (mounted) {
             setState(() {
               _localUserJoined = true;
               _isInCall = true;
               _currentStatus = SessionStatus.inProgress;
             });
+          }
         },
         onUserJoined: (connection, remoteUid, elapsed) {
-          debugPrint("🎉 REMOTE JOINED: $remoteUid");
-          if (mounted)
+          _log("🎉 REMOTE JOINED: $remoteUid");
+          if (mounted) {
             setState(() {
               _remoteUid = remoteUid;
               _remoteUserJoined = true;
             });
+          }
         },
         onFirstRemoteVideoFrame:
             (connection, remoteUid, width, height, elapsed) {
-          debugPrint("📹 REMOTE VIDEO FRAME RECEIVED: $remoteUid");
+          _log("📹 REMOTE VIDEO FRAME: $remoteUid");
           if (mounted && _remoteUid == remoteUid) {
             setState(() => _remoteVideoPublished = true);
           }
         },
         onError: (err, msg) {
-          debugPrint("❌ ERROR: $err - $msg");
+          _log("❌ RTC ERROR: $err - $msg");
           if (mounted) setState(() => _errorMessage = "Error: $err");
         },
       ));
@@ -190,10 +206,6 @@ class _SessionScreenState extends State<SessionScreen>
       } else {
         await _engine!.enableVideo();
         await _engine!.startPreview();
-      }
-
-      // 🔥 VIVO / MediaTek FULL FIX (frame + color + decoder)
-      if (!_isVoiceOnly) {
         await _engine!.setVideoEncoderConfiguration(
           const VideoEncoderConfiguration(
             dimensions: VideoDimensions(width: 540, height: 960),
@@ -203,7 +215,6 @@ class _SessionScreenState extends State<SessionScreen>
             degradationPreference: DegradationPreference.maintainQuality,
           ),
         );
-
         await _engine!.setParameters('{"che.video.low_latency_mode":1}');
         await _engine!.setParameters('{"che.video.color_range":2}');
         await _engine!.setParameters('{"che.video.color_space":1}');
@@ -211,7 +222,6 @@ class _SessionScreenState extends State<SessionScreen>
       }
 
       final token = widget.token ?? await _fetchAgoraToken();
-
       await _engine!.joinChannel(
         token: token,
         channelId: _channelName,
@@ -222,10 +232,9 @@ class _SessionScreenState extends State<SessionScreen>
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
         ),
       );
-
-      debugPrint("🚀 CALL STARTED: $_channelName");
+      _log("🚀 RTC CALL STARTED: $_channelName");
     } catch (e) {
-      debugPrint("❌ CALL FAILED: $e");
+      _log("❌ CALL FAILED: $e");
       if (mounted) setState(() => _errorMessage = "Failed to start call: $e");
     } finally {
       _isStartingCall = false;
@@ -240,7 +249,7 @@ class _SessionScreenState extends State<SessionScreen>
       if (!_isVoiceOnly) await _engine!.stopPreview();
       await _engine!.release();
     } catch (e) {
-      debugPrint("Cleanup error: $e");
+      _log("Engine cleanup error: $e");
     }
     _engine = null;
     if (mounted) {
@@ -256,7 +265,7 @@ class _SessionScreenState extends State<SessionScreen>
 
   Future<void> _leaveCall() async {
     await _cleanupEngine();
-    _chatService.disconnect();
+    if (widget.callType != CallType.chat) _chatService.disconnect();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -281,7 +290,6 @@ class _SessionScreenState extends State<SessionScreen>
   void _sendMessage() {
     final text = _messageController.text.trim();
     if (text.isEmpty || widget.session == null) return;
-
     final senderId = widget.isCustomer ? _uidCustomer : _uidPractitioner;
     _chatService.sendMessage(
       sessionId: widget.session!.sessionId!,
@@ -291,211 +299,33 @@ class _SessionScreenState extends State<SessionScreen>
     _messageController.clear();
   }
 
-  Widget _buildChatBottomSheet() {
-    final participantName =
-        widget.isCustomer ? "Practitioner Chat" : "Customer Chat";
-
-    return SafeArea(
-      child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF2F4F8),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-              decoration: BoxDecoration(
-                color: Colors.deepPurple.shade600,
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(28)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.person, color: Colors.white),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      participantName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, color: Colors.white),
-                  )
-                ],
-              ),
-            ),
-            Expanded(
-              child: _messages.isEmpty
-                  ? const Center(child: Text("Start conversation..."))
-                  : ListView.builder(
-                      reverse: true,
-                      padding: const EdgeInsets.all(18),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        final msg = _messages[index];
-                        final isMe = msg['isMe'] == true;
-                        return Align(
-                          alignment: isMe
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            padding: const EdgeInsets.all(14),
-                            constraints: BoxConstraints(
-                              maxWidth:
-                                  MediaQuery.of(context).size.width * 0.75,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isMe ? Colors.deepPurple : Colors.white,
-                              borderRadius: BorderRadius.circular(18),
-                              boxShadow: const [
-                                BoxShadow(blurRadius: 3, color: Colors.black12),
-                              ],
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  msg['sender'] ?? "Unknown",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isMe ? Colors.white70 : Colors.grey,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  msg['text'] ?? "",
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    color: isMe ? Colors.white : Colors.black87,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            Container(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom + 12,
-                left: 14,
-                right: 14,
-                top: 10,
-              ),
-              color: Colors.white,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      decoration: InputDecoration(
-                        hintText: widget.isCustomer
-                            ? "Ask your question..."
-                            : "Write answer...",
-                        filled: true,
-                        fillColor: Colors.grey.shade100,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(30),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 20),
-                      ),
-                      onSubmitted: (_) => _sendMessage(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  CircleAvatar(
-                    backgroundColor: Colors.deepPurple,
-                    child: IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: _sendMessage,
-                    ),
-                  )
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openChat() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _buildChatBottomSheet(),
-    );
-  }
-
-  Future<List<Map<String, dynamic>>> _getChatHistory() async {
-    if (widget.session == null) return [];
-    try {
-      final response = await http.get(
-        Uri.parse(
-            "http://192.168.1.XXX:16679/api/chat/${widget.session!.sessionId}"), // ← CHANGE TO YOUR PC IP
-      );
-      if (response.statusCode != 200) return [];
-
-      final List data = json.decode(response.body);
-      return data
-          .map((msg) => {
-                "id": msg["id"],
-                "sender": msg["senderName"] ?? "Unknown",
-                "text": msg["message"] ?? "",
-                "isMe": msg["senderId"] ==
-                    (widget.isCustomer ? _uidCustomer : _uidPractitioner),
-              })
-          .toList()
-          .reversed
-          .toList();
-    } catch (e) {
-      return [];
-    }
-  }
-
-  @override
-  void dispose() {
-    _cleanupEngine();
-    _pulseController.dispose();
-    _messageController.dispose();
-    _chatService.disconnect();
-    super.dispose();
-  }
-
+  // ─── BUILD ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    // 🔥 CHAT MODE
+    // ── 🔥 CHAT MODE: hand off entirely to AgoraChatScreen ───────────────────
     if (widget.callType == CallType.chat) {
-      return FutureBuilder<List<Map<String, dynamic>>>(
-        future: _getChatHistory(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Scaffold(
-                body: Center(child: CircularProgressIndicator()));
-          }
-          return ChatScreen(
-            session: widget.session!,
-            isCustomer: widget.isCustomer,
-            chatService: _chatService,
-            initialMessages: snapshot.data!,
-          );
-        },
+      if (widget.session == null) {
+        return const Scaffold(
+          body: Center(child: Text("No session provided.")),
+        );
+      }
+      // AgoraChatScreen owns everything:
+      //   ✅ Agora IM SDK init
+      //   ✅ Token fetch from backend (printed to console)
+      //   ✅ Login with token
+      //   ✅ fetchHistoryMessages() from Agora SDK
+      //   ✅ Real-time messaging via MessagesView
+      // No websocket. No spinner here. No backend history call.
+      return AgoraChatScreen(
+        session: widget.session!,
+        isCustomer: widget.isCustomer,
+        chatService: _apiService,
+        initialMessages: const [],
+        isFullScreen: true,
       );
     }
 
-    // 🔥 VIDEO/AUDIO CALL MODE - YOUR VideoCallScreen!
+    // ── 🔥 VIDEO / AUDIO CALL MODE ────────────────────────────────────────────
     return Scaffold(
       backgroundColor: Colors.black,
       body: _isStartingCall
@@ -511,10 +341,7 @@ class _SessionScreenState extends State<SessionScreen>
             )
           : Stack(
               children: [
-                // 🔥 MAIN VIDEO VIEW → YOUR VideoCallScreen
                 if (_isInCall) _buildLiveCallView() else _buildWaitingView(),
-
-                // ERROR OVERLAY
                 if (_errorMessage != null)
                   Positioned(
                     top: 100,
@@ -547,14 +374,13 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
+  // ─── LIVE CALL VIEW ────────────────────────────────────────────────────────
   Widget _buildLiveCallView() {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 🔥 AUDIO CALL → Simple speaking screen (NO camera)
         if (_isVoiceOnly)
           _buildAudioCallScreen()
-        // 🔥 VIDEO CALL → Your VideoCallScreen
         else if (_remoteUid != null && _remoteUserJoined)
           VideoCallScreen(
             key: _remoteVideoKey,
@@ -588,23 +414,11 @@ class _SessionScreenState extends State<SessionScreen>
           )
         else
           _buildWaitingScreen(),
-
-        // 🔥 CHAT BUTTON
-        // Positioned(
-        //   right: 20,
-        //   top: MediaQuery.of(context).padding.top + 20,
-        //   child: FloatingActionButton(
-        //     mini: true,
-        //     onPressed: _openChat,
-        //     backgroundColor: Colors.deepPurple,
-        //     child: const Icon(Icons.chat_bubble_outline, color: Colors.white),
-        //   ),
-        // ),
       ],
     );
   }
 
-// 🔥 NEW: Audio Call Screen (No camera, speaking icon)
+  // ─── AUDIO CALL SCREEN ─────────────────────────────────────────────────────
   Widget _buildAudioCallScreen() {
     return Container(
       decoration: const BoxDecoration(
@@ -618,8 +432,6 @@ class _SessionScreenState extends State<SessionScreen>
         child: Column(
           children: [
             const Spacer(flex: 2),
-
-            // 🔥 SPEAKING ANIMATION (Waveform)
             AnimatedContainer(
               duration: const Duration(milliseconds: 800),
               width: 120,
@@ -631,7 +443,6 @@ class _SessionScreenState extends State<SessionScreen>
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Pulsing ring
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 1500),
                     width: _remoteUserJoined ? 100 : 80,
@@ -644,7 +455,6 @@ class _SessionScreenState extends State<SessionScreen>
                       ),
                     ),
                   ),
-                  // Speaking icon
                   Icon(
                     _remoteUserJoined ? Icons.mic : Icons.phone,
                     size: _remoteUserJoined ? 60 : 50,
@@ -653,22 +463,15 @@ class _SessionScreenState extends State<SessionScreen>
                 ],
               ),
             ),
-
             const SizedBox(height: 40),
-
-            // Participant name
             Text(
               widget.isCustomer ? "Practitioner" : "Customer",
               style: const TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-              ),
+                  color: Colors.white,
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold),
             ),
-
             const SizedBox(height: 8),
-
-            // Status
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               child: Text(
@@ -677,15 +480,10 @@ class _SessionScreenState extends State<SessionScreen>
                     : "${widget.isCustomer ? "Calling" : "Waiting for call"}...",
                 key: ValueKey(_remoteUserJoined),
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 18,
-                ),
+                    color: Colors.white.withOpacity(0.9), fontSize: 18),
               ),
             ),
-
             const Spacer(),
-
-            // 🔥 CONTROLS (Audio only - Mic + End)
             Container(
               margin: const EdgeInsets.all(30),
               padding: const EdgeInsets.all(24),
@@ -709,7 +507,6 @@ class _SessionScreenState extends State<SessionScreen>
                 ],
               ),
             ),
-
             const Spacer(flex: 1),
           ],
         ),
@@ -717,7 +514,6 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-// 🔥 Audio control button
   Widget _buildAudioControlButton({
     required IconData icon,
     required Color color,
@@ -733,10 +529,7 @@ class _SessionScreenState extends State<SessionScreen>
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.4),
-              blurRadius: 20,
-              spreadRadius: 4,
-            ),
+                color: color.withOpacity(0.4), blurRadius: 20, spreadRadius: 4),
           ],
         ),
         child: Icon(icon, color: Colors.white, size: 32),
@@ -744,6 +537,7 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
+  // ─── WAITING VIEW (before joining) ─────────────────────────────────────────
   Widget _buildWaitingView() {
     return Container(
       decoration: const BoxDecoration(
@@ -779,10 +573,9 @@ class _SessionScreenState extends State<SessionScreen>
                       ? "Connecting to Practitioner"
                       : "Waiting for Customer",
                   style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -819,108 +612,7 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-  Widget _buildStatusBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-            colors: [Colors.green.shade700, Colors.green.shade900]),
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Row(
-        children: [
-          Icon(_isVoiceOnly ? Icons.phone_in_talk : Icons.videocam,
-              color: Colors.white),
-          const SizedBox(width: 8),
-          Text(
-            _isVoiceOnly ? "VOICE CALL" : "VIDEO CALL",
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color: _remoteUserJoined ? Colors.green : Colors.orange,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              _remoteUserJoined ? "Connected" : "Connecting...",
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControls() {
-    // 🔥 HIDE VIDEO CONTROLS in audio mode
-    if (_isVoiceOnly) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.all(20),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(35),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          // Video toggle button (only for video calls)
-          _buildControlButton(
-            icon: Icons.videocam,
-            onPressed: () async {
-              if (_engine == null) return;
-              setState(() => _isVoiceOnly = !_isVoiceOnly);
-              if (_isVoiceOnly) {
-                await _engine!.disableVideo();
-              } else {
-                await _engine!.enableVideo();
-                await _engine!.startPreview();
-              }
-            },
-            color: Colors.teal,
-          ),
-          _buildControlButton(
-            icon: _micMuted ? Icons.mic_off : Icons.mic,
-            onPressed: _toggleMic,
-            color: _micMuted ? Colors.grey : Colors.orange,
-          ),
-          _buildControlButton(
-            icon: _videoMuted ? Icons.videocam_off : Icons.videocam,
-            onPressed: _toggleCamera,
-            color: _videoMuted ? Colors.grey : Colors.purple,
-          ),
-          _buildControlButton(
-            icon: Icons.call_end,
-            onPressed: _leaveCall,
-            color: Colors.red,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControlButton({
-    required IconData icon,
-    required VoidCallback onPressed,
-    required Color color,
-  }) {
-    return SizedBox(
-      height: 55,
-      width: 55,
-      child: RawMaterialButton(
-        onPressed: onPressed,
-        elevation: 4,
-        fillColor: color,
-        shape: const CircleBorder(),
-        child: Icon(icon, color: Colors.white, size: 26),
-      ),
-    );
-  }
-
+  // ─── WAITING SCREEN (joined, remote not yet connected) ─────────────────────
   Widget _buildWaitingScreen() {
     return Container(
       color: Colors.black,
@@ -948,5 +640,15 @@ class _SessionScreenState extends State<SessionScreen>
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _cleanupEngine();
+    _pulseController.dispose();
+    _messageController.dispose();
+    // Only disconnect websocket if it was used (audio/video mode)
+    if (widget.callType != CallType.chat) _chatService.disconnect();
+    super.dispose();
   }
 }

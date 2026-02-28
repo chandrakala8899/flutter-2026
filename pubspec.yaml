@@ -36,6 +36,9 @@ dependencies:
   speech_to_text: ^7.3.0
   agora_chat_uikit: ^2.0.1
   crypto: ^3.0.3
+  image_picker: ^1.0.4
+  file_picker: ^9.0.2
+  open_file: ^3.3.2
 
 
 dev_dependencies:

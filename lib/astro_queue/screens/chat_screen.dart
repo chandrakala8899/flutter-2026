@@ -1,13 +1,19 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
-import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:flutter/foundation.dart' show kAlwaysDismissedAnimation;
+
 import 'package:flutter/material.dart';
-import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
-import 'package:flutter_learning/astro_queue/services/chat_service.dart';
-import 'package:flutter_learning/colors.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
+
+import 'sessionscreen.dart';
+import '../model/consultantresponse_model.dart';
+import '../services/chat_service.dart';
+import '../../colors.dart';
 
 class ChatScreen extends StatefulWidget {
   final ConsultationSessionResponse session;
@@ -27,19 +33,28 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
   late stt.SpeechToText _speech;
+  AnimationController? _micAnimationController;
+  Animation<double>? _micScaleAnimation;
+
   bool _isListening = false;
-  double _soundLevel = 0.0;
-  String _liveText = "";
-  List<Map<String, dynamic>> messages = [];
   bool _isSending = false;
   bool _isLoadingHistory = false;
+  bool _showSendButton = false;
 
-  // 🔥 FIXED: Better duplicate prevention - separate tracking
-  Set<String> _localSentMessages = {};
-  Set<String> _serverMessages = {};
+  String _liveText = "";
+  double _soundLevel = 0.0;
+
+  List<Map<String, dynamic>> messages = [];
+
+  final Set<String> _localSentMessages = {};
+  final Set<String> _serverMessages = {};
+
+  final ImagePicker _picker = ImagePicker();
 
   static const int _uidCustomer = 1;
   static const int _uidPractitioner = 2;
@@ -47,258 +62,175 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    _loadChatHistory();
     _speech = stt.SpeechToText();
+    _initAnimations();
     _initSpeech();
+    _loadChatHistory();
 
-    // 🔥 FIXED: Only accept server messages that don't match local ones
-    // In initState() onMessageReceived callback - Line ~70
     widget.chatService.onMessageReceived = (data) {
       final messageId = data["id"]?.toString();
       final text = data["message"]?.toString().trim() ?? "";
-      final senderId = data["senderId"]?.toString() ?? "";
 
-      // Skip if it's a duplicate of our local message
       if (_localSentMessages.contains(text) ||
           (messageId != null && _serverMessages.contains(messageId))) {
         return;
       }
 
-      if (mounted) {
-        setState(() {
-          messages.insert(0, _processMessage(data));
-          // 🔥 FIXED: Safe null check
-          if (messageId != null && messageId.isNotEmpty) {
-            _serverMessages.add(messageId);
-          }
-        });
-      }
+      setState(() {
+        messages.insert(0, _processMessage(data));
+        if (messageId != null) _serverMessages.add(messageId);
+      });
+      _scrollToBottom();
     };
+
+    _controller.addListener(() {
+      setState(() {
+        _showSendButton = _controller.text.trim().isNotEmpty;
+      });
+    });
+  }
+
+  void _initAnimations() {
+    _micAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _micScaleAnimation = Tween<double>(begin: 1.0, end: 1.3).animate(
+      CurvedAnimation(
+        parent: _micAnimationController!,
+        curve: Curves.easeInOut,
+      ),
+    );
   }
 
   Future<void> _loadChatHistory() async {
     if (_isLoadingHistory || widget.session.sessionId == null) return;
 
     _isLoadingHistory = true;
-    setState(() => messages.clear());
+    messages.clear();
     _localSentMessages.clear();
     _serverMessages.clear();
+    setState(() {});
 
     try {
       final history = await _getChatHistory();
-      if (mounted) {
-        setState(() {
-          messages = history.map((m) => _processMessage(m)).toList();
-          // Track server messages from history
-          for (var msg in history) {
-            final id = msg["id"]?.toString();
-            if (id != null && id.isNotEmpty) {
-              _serverMessages.add(id);
-            }
-          }
-        });
-      }
+      messages = history.map((m) => _processMessage(m)).toList();
+      setState(() {});
     } catch (e) {
-      print("History load error: $e");
-      if (mounted) {
-        setState(() {
-          messages = widget.initialMessages.map(_processMessage).toList();
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _isLoadingHistory = false);
+      messages = widget.initialMessages.map(_processMessage).toList();
+      setState(() {});
     }
+
+    _isLoadingHistory = false;
+    _scrollToBottom();
   }
 
   Future<List<Map<String, dynamic>>> _getChatHistory() async {
-    if (widget.session.sessionId == null) return [];
+    final response = await http.get(
+      Uri.parse("http://localhost:16679/api/chat/${widget.session.sessionId}"),
+    );
 
-    try {
-      final response = await http.get(
-        Uri.parse(
-            "http://localhost:16679/api/chat/${widget.session.sessionId}"),
-        headers: {'Content-Type': 'application/json'},
-      );
-
-      if (response.statusCode == 200) {
-        final List data = json.decode(response.body);
-        return data
-            .map((msg) => {
-                  "id": msg["id"]?.toString(),
-                  "senderName": msg["senderName"] ?? "Unknown",
-                  "message": msg["message"] ?? "",
-                  "sentAt": msg["sentAt"] ??
-                      msg["createdAt"] ??
-                      msg["timestamp"] ??
-                      DateTime.now().toIso8601String(),
-                  "senderId":
-                      msg["senderId"] ?? (msg["senderName"] == "You" ? 1 : 2),
-                })
-            .toList()
-            .reversed
-            .toList();
-      }
-    } catch (e) {
-      print("API Error: $e");
+    if (response.statusCode == 200) {
+      final List data = json.decode(response.body);
+      return data
+          .map((e) => e as Map<String, dynamic>)
+          .toList()
+          .reversed
+          .toList();
     }
     return [];
   }
 
   Map<String, dynamic> _processMessage(Map<String, dynamic> data) {
     DateTime sentAt = DateTime.now();
-
-    try {
-      String? sentAtStr = data["sentAt"]?.toString()?.trim() ??
-          data["createdAt"]?.toString()?.trim() ??
-          data["timestamp"]?.toString()?.trim();
-
-      if (sentAtStr != null && sentAtStr.isNotEmpty && sentAtStr != "null") {
-        sentAtStr =
-            sentAtStr.replaceAll('T', ' ').replaceAll('Z', '').split('.')[0];
-        final parsed = DateTime.tryParse(sentAtStr);
-        if (parsed != null) {
-          sentAt = parsed.toLocal();
-        }
-      }
-    } catch (e) {
-      sentAt = DateTime.now();
+    if (data["sentAt"] != null) {
+      sentAt = DateTime.tryParse(data["sentAt"]) ?? DateTime.now();
     }
 
     final senderId = data["senderId"] ?? 0;
     final myId = widget.isCustomer ? _uidCustomer : _uidPractitioner;
 
     return {
-      "id": data["id"]?.toString() ??
-          "local_${DateTime.now().millisecondsSinceEpoch}",
-      "sender": data["senderName"]?.toString() ?? "Unknown",
-      "text": data["message"]?.toString() ?? "",
+      "id": data["id"] ?? "local_${DateTime.now().millisecondsSinceEpoch}",
+      "text": data["message"] ?? "",
       "sentAt": sentAt,
-      "time": _formatMessageTime(sentAt), // 🔥 EVERY MESSAGE HAS PROPER TIME
+      "time": _formatMessageTime(sentAt),
       "dateHeader": _getDateHeader(sentAt),
       "isMe": senderId == myId,
+      "type": data["type"] ?? "text",
     };
   }
 
   String _formatMessageTime(DateTime time) {
-    try {
-      final hour = time.hour % 12;
-      final displayHour = hour == 0 ? 12 : hour;
-      final minutes = time.minute.toString().padLeft(2, '0');
-      final period = time.hour >= 12 ? 'PM' : 'AM';
-      return '${displayHour.toString().padLeft(2, '0')}:$minutes $period';
-    } catch (e) {
-      return DateTime.now().toString().substring(11, 16);
-    }
+    final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.hour >= 12 ? 'PM' : 'AM';
+    return "$hour:$minute $period";
   }
 
   String _getDateHeader(DateTime date) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
     final msgDay = DateTime(date.year, date.month, date.day);
 
-    if (msgDay.isAtSameMomentAs(today)) return "Today";
-    if (msgDay.isAtSameMomentAs(yesterday)) return "Yesterday";
+    if (msgDay == today) return "Today";
+    if (msgDay == today.subtract(const Duration(days: 1))) return "Yesterday";
 
-    const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec"
-    ];
-    return "${date.day} ${months[date.month - 1]}";
+    return "${date.day}/${date.month}/${date.year}";
   }
 
   Future<void> _initSpeech() async {
-    try {
-      await Permission.microphone.request();
-      await _speech.initialize();
-    } catch (e) {}
+    await Permission.microphone.request();
+    await _speech.initialize();
   }
 
-  Future<void> _toggleListening() async {
+  void _toggleListening() async {
     if (_isListening) {
-      _stopListening();
+      await _speech.stop();
+      _micAnimationController?.stop();
+      setState(() {
+        _isListening = false;
+        _soundLevel = 0.0; // 🔥 Reset sound level
+      });
     } else {
-      await _startListening();
-    }
-  }
-
-  Future<void> _startListening() async {
-    try {
-      if (!await _speech.initialize()) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Microphone not available")),
-          );
-        }
-        return;
-      }
       setState(() {
         _isListening = true;
         _liveText = "";
         _soundLevel = 0.0;
       });
-      _speech.listen(
-        onResult: (result) =>
-            setState(() => _liveText = result.recognizedWords),
-        onSoundLevelChange: (level) => setState(() => _soundLevel = level),
+
+      if (_micAnimationController?.isAnimating != true) {
+        _micAnimationController?.repeat(reverse: true);
+      }
+
+      await _speech.listen(
+        onResult: (result) {
+          if (mounted) {
+            setState(() {
+              _liveText = result.recognizedWords;
+            });
+          }
+        },
+        onSoundLevelChange: (level) {
+          if (mounted) {
+            setState(
+                () => _soundLevel = math.min(level, 1.0)); // 🔥 Clamp to 0-1
+          }
+        },
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(seconds: 3),
         partialResults: true,
+        localeId: 'en_US',
       );
-    } catch (e) {}
-  }
-
-  void _stopListening() {
-    try {
-      _speech.stop();
-    } catch (e) {}
-    setState(() => _isListening = false);
-
-    final text = _liveText.trim();
-    if (text.isNotEmpty && !_isSending) {
-      _sendVoiceMessage(text);
     }
-    _liveText = "";
   }
 
-  // 🔥 FIXED: NO DUPLICATES - Track local messages separately
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    // 🔥 Check if we already sent this exact message
-    if (_localSentMessages.contains(text)) return;
-
     _isSending = true;
-
-    // Add local message immediately with proper time
-    _addLocalMessage(text);
-    _localSentMessages.add(text); // Track locally sent message
-
-    // Send to server (server echo will be filtered out)
-    widget.chatService.sendMessage(
-      sessionId: widget.session.sessionId!,
-      senderId: widget.isCustomer ? _uidCustomer : _uidPractitioner,
-      message: text,
-    );
-
-    _controller.clear();
-    await Future.delayed(const Duration(milliseconds: 1200));
-    _isSending = false;
-  }
-
-  void _sendVoiceMessage(String text) {
-    if (_isSending || _localSentMessages.contains(text)) return;
-
-    _addLocalMessage(text);
+    _addLocalTextMessage(text);
     _localSentMessages.add(text);
 
     widget.chatService.sendMessage(
@@ -306,248 +238,206 @@ class _ChatScreenState extends State<ChatScreen> {
       senderId: widget.isCustomer ? _uidCustomer : _uidPractitioner,
       message: text,
     );
+
+    _controller.clear();
+    setState(() => _showSendButton = false);
+    await Future.delayed(const Duration(milliseconds: 500));
+    _isSending = false;
+    _scrollToBottom();
   }
 
-  void _addLocalMessage(String text) {
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _addLocalTextMessage(String text) {
     final now = DateTime.now();
     setState(() {
       messages.insert(0, {
         "id": "local_${now.millisecondsSinceEpoch}",
-        "sender": "You",
         "text": text,
         "sentAt": now,
-        "time": _formatMessageTime(now), // 🔥 SHOWS PROPER CURRENT TIME
+        "time": _formatMessageTime(now),
         "dateHeader": _getDateHeader(now),
         "isMe": true,
+        "type": "text",
       });
     });
+    _scrollToBottom();
   }
 
-  Widget _buildWaveform() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(9, (index) {
-        final intensity = _soundLevel.abs() * 3.2;
-        final baseHeight = 10 + intensity.clamp(0, 52);
-        final phase =
-            (DateTime.now().millisecondsSinceEpoch / 90.0) + (index * 0.8);
-        final shake = math.sin(phase) * 11;
-
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 55),
-          curve: Curves.easeInOut,
-          margin: const EdgeInsets.symmetric(horizontal: 2.2),
-          width: 3.8,
-          height: (baseHeight + shake).clamp(6, 60),
-          decoration: BoxDecoration(
-            color: Colors.black87,
-            borderRadius: BorderRadius.circular(10),
+  void _showAttachmentOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Wrap(
+            spacing: 30,
+            runSpacing: 20,
+            children: [
+              _attachmentItem(Icons.camera_alt, "Camera", Colors.pink,
+                  () async {
+                Navigator.pop(context);
+                final image =
+                    await _picker.pickImage(source: ImageSource.camera);
+                if (image != null) _addImageMessage(File(image.path!));
+              }),
+              _attachmentItem(Icons.photo, "Gallery", Colors.green, () async {
+                Navigator.pop(context);
+                final image =
+                    await _picker.pickImage(source: ImageSource.gallery);
+                if (image != null) _addImageMessage(File(image.path!));
+              }),
+              _attachmentItem(Icons.insert_drive_file, "Document", Colors.blue,
+                  () async {
+                Navigator.pop(context);
+                final result = await FilePicker.platform.pickFiles();
+                if (result != null && result.files.single.path != null) {
+                  _addDocumentMessage(File(result.files.single.path!));
+                }
+              }),
+            ],
           ),
         );
-      }),
+      },
     );
   }
 
-  Widget _buildDateHeader(String dateHeader) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16),
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.grey[300],
-            borderRadius: BorderRadius.circular(20),
+  Widget _attachmentItem(
+      IconData icon, String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: color,
+            child: Icon(icon, color: Colors.white),
           ),
-          child: Text(
-            dateHeader,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Colors.black87,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(fontSize: 12)),
+        ],
       ),
     );
+  }
+
+  void _addImageMessage(File file) {
+    final now = DateTime.now();
+    setState(() {
+      messages.insert(0, {
+        "id": "img_${now.millisecondsSinceEpoch}",
+        "image": file,
+        "sentAt": now,
+        "time": _formatMessageTime(now),
+        "dateHeader": _getDateHeader(now),
+        "isMe": true,
+        "type": "image",
+      });
+    });
+    _scrollToBottom();
+  }
+
+  void _addDocumentMessage(File file) {
+    final now = DateTime.now();
+    setState(() {
+      messages.insert(0, {
+        "id": "doc_${now.millisecondsSinceEpoch}",
+        "file": file,
+        "fileName": file.path.split('/').last,
+        "sentAt": now,
+        "time": _formatMessageTime(now),
+        "dateHeader": _getDateHeader(now),
+        "isMe": true,
+        "type": "document",
+      });
+    });
+    _scrollToBottom();
   }
 
   Widget _bubble(Map<String, dynamic> msg) {
-    final bool isMe = msg["isMe"] == true;
-    final String time = msg["time"]?.toString() ?? "Now";
-    final String text = msg["text"]?.toString() ?? "";
+    final bool isMe = msg["isMe"];
+    final String? type = msg["type"];
+
+    Widget content;
+
+    if (type == "image") {
+      content = ClipRRect(
+        borderRadius: BorderRadius.circular(15),
+        child: Image.file(
+          msg["image"],
+          width: 200,
+          height: 200,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) =>
+              Container(width: 200, height: 200, color: Colors.grey),
+        ),
+      );
+    } else if (type == "document") {
+      content = Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.grey[100],
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.insert_drive_file, color: Colors.blue),
+            const SizedBox(width: 8),
+            Flexible(child: Text(msg["fileName"] ?? "Document")),
+          ],
+        ),
+      );
+    } else {
+      content = Text(
+        msg["text"] ?? "",
+        style: TextStyle(
+          color: isMe ? Colors.white : Colors.black87,
+          fontSize: 16,
+        ),
+      );
+    }
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Column(
-        crossAxisAlignment:
-            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.78,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isMe ? const Color.fromARGB(255, 2, 40, 3) : Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 2,
+              offset: const Offset(0, 1),
             ),
-            decoration: BoxDecoration(
-              color: isMe ? primaryColor : Colors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(20),
-                topRight: const Radius.circular(20),
-                bottomLeft:
-                    isMe ? const Radius.circular(20) : const Radius.circular(4),
-                bottomRight:
-                    isMe ? const Radius.circular(4) : const Radius.circular(20),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Text(
-              text,
-              style: TextStyle(
-                color: isMe ? Colors.white : Colors.black87,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          // 🔥 TIME VISIBLE ON ALL MESSAGES
-          Padding(
-            padding: EdgeInsets.only(
-              left: isMe ? 0 : 18,
-              right: isMe ? 18 : 0,
-              bottom: 4,
-              top: 2,
-            ),
-            child: Text(
-              time,
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment:
+              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            content,
+            const SizedBox(height: 4),
+            Text(
+              msg["time"],
               style: TextStyle(
                 fontSize: 11,
-                color: isMe
-                    ? Colors.grey
-                    : Colors.grey[600] ?? Colors.grey[700], // 🔥 FIXED!
-                fontWeight: FontWeight.w500,
+                color: isMe ? Colors.white70 : Colors.grey[600],
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final String headerName = widget.isCustomer
-        ? (widget.session.customer?.name ??
-            widget.session.consultant?.name ??
-            "Practitioner")
-        : (widget.session.customer?.name ?? "Customer");
-
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      backgroundColor: const Color(0xFFF2F4F8),
-      appBar: AppBar(
-        backgroundColor: primaryColor,
-        title: Text(
-          headerName,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            color: Colors.white,
-          ),
-        ),
-        actions: [
-          // 🔥 FIXED: Phone Call Navigation
-          IconButton(
-            icon: const Icon(Icons.phone, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SessionScreen(
-                    session: widget.session, // ✅ Fixed!
-                    isCustomer: widget.isCustomer, // ✅ Fixed!
-                    callType: CallType.audio, // ✅ Added callType
-                  ),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: messages.isEmpty && !_isLoadingHistory
-                  ? const Center(
-                      child: Text(
-                        "Start conversation...",
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                    )
-                  : _isLoadingHistory
-                      ? const Center(child: CircularProgressIndicator())
-                      : ListView.builder(
-                          reverse: true,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 12),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            if (index >= messages.length || index < 0) {
-                              return const SizedBox.shrink();
-                            }
-
-                            final currentMsg = messages[index];
-                            final List<Widget> widgets = [_bubble(currentMsg)];
-
-                            bool showDateHeader = false;
-                            if (index == messages.length - 1) {
-                              showDateHeader = true;
-                            } else if (index < messages.length - 1) {
-                              final prevIndex = index + 1;
-                              final prevMsg = messages[prevIndex];
-                              final currentDate =
-                                  currentMsg["dateHeader"]?.toString() ?? "";
-                              final prevDate =
-                                  prevMsg["dateHeader"]?.toString() ?? "";
-                              if (currentDate != prevDate &&
-                                  currentDate.isNotEmpty) {
-                                showDateHeader = true;
-                              }
-                            }
-
-                            if (showDateHeader) {
-                              final dateHeader =
-                                  currentMsg["dateHeader"]?.toString() ??
-                                      "Today";
-                              widgets.insert(0, _buildDateHeader(dateHeader));
-                            }
-
-                            return Column(children: widgets);
-                          },
-                        ),
-            ),
-            Container(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, -2),
-                  ),
-                ],
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: _isListening ? _buildListeningUI() : _buildNormalInput(),
             ),
           ],
         ),
@@ -555,29 +445,190 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildListeningUI() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(30),
+  @override
+  Widget build(BuildContext context) {
+    final headerName = widget.isCustomer
+        ? widget.session.consultant?.name ?? "Practitioner"
+        : widget.session.customer?.name ?? "Customer";
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: const Color.fromARGB(255, 2, 40, 3),
+        title: Text(
+          headerName,
+          style: const TextStyle(color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.phone, color: Colors.white),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SessionScreen(
+                    session: widget.session,
+                    isCustomer: widget.isCustomer,
+                    callType: CallType.audio,
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
-      child: Row(
+      body: Stack(
         children: [
-          Expanded(
-            child: Text(
-              _liveText.isEmpty ? "Listening..." : _liveText,
-              style:
-                  const TextStyle(fontSize: 16.5, fontWeight: FontWeight.w500),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+          Positioned.fill(
+            child: Image.asset(
+              "assets/images/whats_app_background.jpg",
+              fit: BoxFit.cover,
             ),
           ),
-          _buildWaveform(),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: _toggleListening,
-            child: const Icon(Icons.mic_none, color: Colors.black, size: 32),
+          Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  reverse: true,
+                  controller: _scrollController,
+                  padding: const EdgeInsets.all(10),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    return _bubble(messages[index]);
+                  },
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(8.0),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.95),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black12,
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: Icon(Icons.attach_file, color: Colors.grey[600]),
+                      onPressed: _showAttachmentOptions,
+                    ),
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        maxLines: null,
+                        decoration: InputDecoration(
+                          hintText: "Type a message",
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(25),
+                            borderSide: BorderSide.none,
+                          ),
+                          filled: true,
+                          fillColor: Colors.grey[100],
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                        ),
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _sendMessage(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 🔥 FIXED MIC/SEND BUTTON - NO MORE CRASHES
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: _showSendButton
+                          ? Container(
+                              key: const ValueKey('send'),
+                              child: IconButton(
+                                key: const ValueKey('send_button'),
+                                icon: const Icon(Icons.send,
+                                    color: Colors.green, size: 24),
+                                style: IconButton.styleFrom(
+                                  backgroundColor:
+                                      Colors.green.withOpacity(0.1),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(50),
+                                  ),
+                                ),
+                                onPressed: _sendMessage,
+                              ),
+                            )
+                          : Container(
+                              key: const ValueKey('mic'),
+                              width: 56,
+                              height: 56,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  // 🔥 FIXED SOUND LEVEL CIRCLE - SAFE BOUNDS
+                                  if (_isListening)
+                                    AnimatedBuilder(
+                                      animation: _micAnimationController ??
+                                          kAlwaysDismissedAnimation,
+                                      builder: (context, child) {
+                                        // 🔥 SAFE CALCULATIONS - NO CRASH
+                                        final animationValue =
+                                            (_micAnimationController?.value ??
+                                                    0.0)
+                                                .clamp(0.0, 1.0);
+                                        final soundMultiplier =
+                                            _soundLevel.clamp(0.0, 1.0);
+                                        final pulseSize = (48.0 +
+                                                (animationValue * 16.0) +
+                                                (soundMultiplier * 12.0))
+                                            .clamp(
+                                                48.0, 80.0); // 🔥 SAFE 48-80px
+
+                                        return Container(
+                                          width: pulseSize,
+                                          height: pulseSize,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: Colors.red.withOpacity(
+                                              0.2 +
+                                                  (animationValue * 0.2) +
+                                                  (soundMultiplier * 0.2),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  // 🔥 MIC BUTTON
+                                  IconButton(
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(
+                                        minWidth: 48, minHeight: 48),
+                                    icon: Icon(
+                                      _isListening ? Icons.mic : Icons.mic_none,
+                                      color: _isListening
+                                          ? Colors.red
+                                          : Colors.grey[600],
+                                      size: 24,
+                                    ),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: _isListening
+                                          ? Colors.red.withOpacity(0.1)
+                                          : Colors.transparent,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(50),
+                                      ),
+                                    ),
+                                    onPressed: _toggleListening,
+                                  ),
+                                ],
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -633,10 +684,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
-    try {
-      _speech.stop();
-    } catch (e) {}
+    _micAnimationController?.stop();
+    _micAnimationController?.dispose();
+    _speech.stop();
     _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 }

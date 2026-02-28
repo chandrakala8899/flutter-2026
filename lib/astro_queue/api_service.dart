@@ -279,8 +279,7 @@ class ApiService {
   }
 
   // ✅ 9. Start Session
-  static Future<ConsultationSessionResponse?> 
-  startSession(
+  static Future<ConsultationSessionResponse?> startSession(
       int sessionId) async {
     try {
       final response = await http.post(
@@ -313,26 +312,26 @@ class ApiService {
   }
 
   static Future<ConsultationSessionResponse?> leaveSession({
-  required int sessionId,
-  required int userId,
-}) async {
-  try {
-    final url = "$baseUrl/api/sessions/$sessionId/leave?userId=$userId";
-    debugPrint("Calling leave session: $url");
+    required int sessionId,
+    required int userId,
+  }) async {
+    try {
+      final url = "$baseUrl/api/sessions/$sessionId/leave?userId=$userId";
+      debugPrint("Calling leave session: $url");
 
-    final response = await http.post(Uri.parse(url));
+      final response = await http.post(Uri.parse(url));
 
-    if (response.statusCode == 200) {
-      return ConsultationSessionResponse.fromJson(jsonDecode(response.body));
-    } else {
-      debugPrint("Leave failed: ${response.statusCode} - ${response.body}");
+      if (response.statusCode == 200) {
+        return ConsultationSessionResponse.fromJson(jsonDecode(response.body));
+      } else {
+        debugPrint("Leave failed: ${response.statusCode} - ${response.body}");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("Leave error: $e");
       return null;
     }
-  } catch (e) {
-    debugPrint("Leave error: $e");
-    return null;
   }
-}
 
   static Future<List<ConsultationSessionResponse>> getCustomerSessions({
     required int customerId,
@@ -358,7 +357,8 @@ class ApiService {
       throw Exception("Failed to load sessions");
     }
   }
-    // 🔥 NEW: Customer starts direct video/audio call → Practitioner gets ringing instantly
+
+  // 🔥 NEW: Customer starts direct video/audio call → Practitioner gets ringing instantly
   static Future<ConsultationSessionResponse?> initiateDirectCall({
     required int customerId,
     required int consultantId,
@@ -404,6 +404,20 @@ class ApiService {
     }
   }
 
+  Future<String> getAgoraChatToken(String userId) async {
+    final response = await http.get(
+      Uri.parse("$baseUrl/agora/chat-token?chatChannel=default&userId=$userId"),
+    );
+
+    print("🟡 Backend Response: ${response.body}");
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data["token"];
+    } else {
+      throw Exception("Failed to fetch token");
+    }
+  }
 
   // ✅ 11. Logout
   static Future<void> logout() async {
