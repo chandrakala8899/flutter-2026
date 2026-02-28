@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
+import 'package:flutter_learning/astro_queue/screens/incoming_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/practioner_queue_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/session_option_screen.dart';
 import 'package:flutter_learning/astro_queue/services/websocketservice.dart';
@@ -27,6 +28,28 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     super.initState();
     webSocketService = WebSocketService();
     _loadPractitionerOnly();
+    // WebSocketService().connect(
+    //   userId: currentUser!.userId!,
+    //   onSessionUpdate: (data) {
+    //     // your existing queue logic
+    //   },
+    //   onIncomingCall: (data) {
+    //     // ← THIS IS THE NEW PART
+    //     final session = ConsultationSessionResponse.fromJson(data['session']);
+    //     final callType = data['callType'] ?? "video";
+
+    //     Navigator.push(
+    //       context,
+    //       MaterialPageRoute(
+    //         builder: (_) => IncomingCallScreen(
+    //           session: session,
+    //           callType: callType,
+    //         ),
+    //       ),
+    //     );
+    //   },
+    //   onError: (err) => print("WebSocket Error: $err"),
+    // );
   }
 
   Future<void> _loadPractitionerOnly() async {

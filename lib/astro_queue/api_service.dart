@@ -358,6 +358,51 @@ class ApiService {
       throw Exception("Failed to load sessions");
     }
   }
+    // 🔥 NEW: Customer starts direct video/audio call → Practitioner gets ringing instantly
+  static Future<ConsultationSessionResponse?> initiateDirectCall({
+    required int customerId,
+    required int consultantId,
+    String callType = "video", // "video" or "audio"
+    BuildContext? context,
+  }) async {
+    try {
+      final uri = Uri.parse(
+        "$baseUrl/api/sessions/initiate-direct-call?customerId=$customerId&consultantId=$consultantId&callType=$callType",
+      );
+
+      final response = await http.post(
+        uri,
+        headers: {"Content-Type": "application/json"},
+      );
+
+      print("Direct Call Response: ${response.statusCode} - ${response.body}");
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        final session = ConsultationSessionResponse.fromJson(data);
+
+        if (context != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Calling $callType..."),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        return session;
+      } else {
+        if (context != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Call failed"), backgroundColor: Colors.red),
+          );
+        }
+        return null;
+      }
+    } catch (e) {
+      print("Initiate Direct Call Error: $e");
+      return null;
+    }
+  }
 
 
   // ✅ 11. Logout

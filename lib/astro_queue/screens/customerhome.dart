@@ -27,7 +27,6 @@ class _CustomerHomeState extends State<CustomerHome> {
   bool isSocketConnected = false;
   bool _navigatingToSession = false;
 
-  // Track which practitioner is currently being booked
   final Set<int> _bookingInProgress = {}; // practitioner.userId
 
   @override
@@ -174,13 +173,35 @@ class _CustomerHomeState extends State<CustomerHome> {
             onPressed: () => Navigator.pop(context),
             child: const Text("Later"),
           ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _autoOpenSession(data);
+          ElevatedButton.icon(
+            icon: const Icon(Icons.videocam),
+            label: const Text("Call Now (Video)"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+            ),
+            onPressed: () async {
+              final session = await ApiService.initiateDirectCall(
+                customerId: currentUser!.userId!,
+                consultantId: currentUser!.userId!, // from your list
+                callType: "video", // or "audio"
+                context: context,
+              );
+
+              if (session != null) {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => SessionScreen(
+                      session: session,
+                      isCustomer: true,
+                      callType: CallType.video,
+                    ),
+                  ),
+                );
+              }
             },
-            child: const Text("Join Now"),
-          ),
+          )
         ],
       ),
     );
