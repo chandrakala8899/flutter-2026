@@ -28,28 +28,6 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     super.initState();
     webSocketService = WebSocketService();
     _loadPractitionerOnly();
-    // WebSocketService().connect(
-    //   userId: currentUser!.userId!,
-    //   onSessionUpdate: (data) {
-    //     // your existing queue logic
-    //   },
-    //   onIncomingCall: (data) {
-    //     // ← THIS IS THE NEW PART
-    //     final session = ConsultationSessionResponse.fromJson(data['session']);
-    //     final callType = data['callType'] ?? "video";
-
-    //     Navigator.push(
-    //       context,
-    //       MaterialPageRoute(
-    //         builder: (_) => IncomingCallScreen(
-    //           session: session,
-    //           callType: callType,
-    //         ),
-    //       ),
-    //     );
-    //   },
-    //   onError: (err) => print("WebSocket Error: $err"),
-    // );
   }
 
   Future<void> _loadPractitionerOnly() async {
@@ -63,6 +41,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
         });
         print("✅ PRACTITIONER CONFIRMED – ID: $consultantId");
 
+        // 🔥 CONNECT WEBSOCKET WITH INCOMING CALL HANDLER
         _connectWebSocket();
         _loadQueueDataSilently();
       } else {
@@ -80,11 +59,37 @@ class _PractitionerHomeState extends State<PractitionerHome> {
   void _connectWebSocket() {
     if (consultantId == 0) return;
 
+    // 🔥 UNCOMMENTED & ENHANCED - FULL INCOMING CALL SUPPORT
     webSocketService.connect(
       userId: consultantId,
       onSessionUpdate: (data) {
         print("Session update received: $data");
         _refreshData();
+      },
+      onIncomingCall: (data) {
+        print("📲 INCOMING CALL DETECTED: $data");
+
+        // Parse session data
+        final sessionData = data['session'] as Map<String, dynamic>? ?? data;
+        final session = ConsultationSessionResponse.fromJson(sessionData);
+        final callType = data['callType']?.toString() ?? 'video';
+
+        // 🔥 SHOW INCOMING CALL SCREEN OVER HOME
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => IncomingCallScreen(
+                session: session,
+                callType: callType,
+                isCustomer: false, // Practitioner receiving call
+              ),
+            ),
+          ).then((_) {
+            // Refresh after call ends
+            _refreshData();
+          });
+        }
       },
       onQueueUpdate: (data) {
         print("Queue updated LIVE: $data");
@@ -114,6 +119,137 @@ class _PractitionerHomeState extends State<PractitionerHome> {
       },
     );
   }
+
+  // 🔥 ENHANCED _joinCurrentSession - Better error handling
+  void _joinCurrentSession() async {
+    if (currentSession == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("No active or called session to join")),
+      );
+      return;
+    }
+
+    try {
+      print("Joining session ID: ${currentSession!.sessionId}");
+
+      // Show loading
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      final joinData = await ApiService.joinSession(
+        sessionId: currentSession!.sessionId!,
+        userId: consultantId,
+        context: context,
+      );
+
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context); // Close loading
+      }
+
+      if (joinData == null || !mounted) return;
+
+      final channel = joinData['channel'] as String?;
+      final token = joinData['token'] as String?;
+
+      if (channel == null || token == null) {
+        throw Exception("Invalid join response from server");
+      }
+
+      print("✅ Join success - Channel: $channel, Token received");
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => SessionOptionScreen(
+            session: currentSession,
+            isCustomer: false, // Practitioner
+          ),
+        ),
+      ).then((_) => _refreshData());
+    } catch (e) {
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context); // Close loading if open
+      }
+      print("❌ Join call failed: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to join call: $e"),
+            backgroundColor: Colors.red.shade700,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
+  }
+
+  // Future<void> _loadPractitionerOnly() async {
+  //   try {
+  //     final user = await ApiService.getLoggedInUser();
+
+  //     if (user != null && user.roleEnum.name.toLowerCase() == 'practitioner') {
+  //       setState(() {
+  //         consultantId = user.userId!;
+  //         currentUser = user;
+  //       });
+  //       print("✅ PRACTITIONER CONFIRMED – ID: $consultantId");
+
+  //       _connectWebSocket();
+  //       _loadQueueDataSilently();
+  //     } else {
+  //       print("❌ Role: '${user?.roleEnum.name}'");
+  //       setState(() {
+  //         errorMessage = "Practitioner access only";
+  //       });
+  //     }
+  //   } catch (e) {
+  //     setState(() => errorMessage = "Session error: $e");
+  //     print("Login error: $e");
+  //   }
+  // }
+
+  // void _connectWebSocket() {
+  //   if (consultantId == 0) return;
+
+  //   webSocketService.connect(
+  //     userId: consultantId,
+  //     onSessionUpdate: (data) {
+  //       print("Session update received: $data");
+  //       _refreshData();
+  //     },
+  //     onQueueUpdate: (data) {
+  //       print("Queue updated LIVE: $data");
+  //       final newQueueSize = data['queueSize'] as int? ?? 0;
+
+  //       if (newQueueSize != queueCount && mounted) {
+  //         final oldCount = queueCount;
+  //         setState(() {
+  //           queueCount = newQueueSize;
+  //         });
+
+  //         if (newQueueSize > oldCount) {
+  //           _showNewBookingPopup(newQueueSize);
+  //         }
+  //       }
+  //     },
+  //     onError: (error) {
+  //       print("WebSocket error: $error");
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Text("WebSocket connection issue: $error"),
+  //             backgroundColor: Colors.red.shade700,
+  //           ),
+  //         );
+  //       }
+  //     },
+  //   );
+  // }
 
   void _showNewBookingPopup(int newQueueSize) {
     if (!mounted) return;
@@ -503,54 +639,54 @@ class _PractitionerHomeState extends State<PractitionerHome> {
     ).then((_) => _refreshData());
   }
 
-  void _joinCurrentSession() async {
-    if (currentSession == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No active or called session to join")),
-      );
-      return;
-    }
+  // void _joinCurrentSession() async {
+  //   if (currentSession == null) {
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       const SnackBar(content: Text("No active or called session to join")),
+  //     );
+  //     return;
+  //   }
 
-    try {
-      print("Joining session ID: ${currentSession!.sessionId}");
+  //   try {
+  //     print("Joining session ID: ${currentSession!.sessionId}");
 
-      final joinData = await ApiService.joinSession(
-        sessionId: currentSession!.sessionId!,
-        userId: consultantId,
-        context: context,
-      );
+  //     final joinData = await ApiService.joinSession(
+  //       sessionId: currentSession!.sessionId!,
+  //       userId: consultantId,
+  //       context: context,
+  //     );
 
-      if (joinData == null || !mounted) return;
+  //     if (joinData == null || !mounted) return;
 
-      final channel = joinData['channel'] as String?;
-      final token = joinData['token'] as String?;
+  //     final channel = joinData['channel'] as String?;
+  //     final token = joinData['token'] as String?;
 
-      if (channel == null || token == null) {
-        throw Exception("Invalid join response from server");
-      }
+  //     if (channel == null || token == null) {
+  //       throw Exception("Invalid join response from server");
+  //     }
 
-      print("Join success - Channel: $channel, Token received");
+  //     print("Join success - Channel: $channel, Token received");
 
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => SessionOptionScreen(
-            session: currentSession,
-            isCustomer: false, // or true
-          ),
-        ),
-      ).then((_) => _refreshData());
-    } catch (e) {
-      print("Join call failed: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Failed to join call: $e"),
-            backgroundColor: Colors.red.shade700,
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  }
+  //     Navigator.push(
+  //       context,
+  //       MaterialPageRoute(
+  //         builder: (context) => SessionOptionScreen(
+  //           session: currentSession,
+  //           isCustomer: false, // or true
+  //         ),
+  //       ),
+  //     ).then((_) => _refreshData());
+  //   } catch (e) {
+  //     print("Join call failed: $e");
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(context).showSnackBar(
+  //         SnackBar(
+  //           content: Text("Failed to join call: $e"),
+  //           backgroundColor: Colors.red.shade700,
+  //           duration: const Duration(seconds: 5),
+  //         ),
+  //       );
+  //     }
+  //   }
+  // }
 }
