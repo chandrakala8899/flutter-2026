@@ -406,7 +406,8 @@ class ApiService {
 
   Future<String> getAgoraChatToken(String userId) async {
     final response = await http.get(
-      Uri.parse("$baseUrl/agora/chat-token?chatChannel=default&userId=$userId"),
+      Uri.parse(
+          "$baseUrl/api/agora/chat-token?userId=$userId"),
     );
 
     print("🟡 Backend Response: ${response.body}");

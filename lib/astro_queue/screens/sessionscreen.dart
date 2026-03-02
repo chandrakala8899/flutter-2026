@@ -59,14 +59,13 @@ class _SessionScreenState extends State<SessionScreen>
 
   static const int _uidCustomer = 1;
   static const int _uidPractitioner = 2;
+  
   static const String _appId = "1a799cf30b064aabbd16218fa05b4014";
 
   bool _isStartingCall = false;
   String? _errorMessage;
   late ApiService _apiService;
 
-  // ── WebSocket ChatService ONLY for audio/video in-call text chat ────────────
-  // NOT used for CallType.chat — Agora IM SDK handles that entirely.
   late ChatService _chatService;
   List<Map<String, dynamic>> _messages = [];
 
@@ -118,9 +117,6 @@ class _SessionScreenState extends State<SessionScreen>
         _startCall();
       });
     }
-
-    // CallType.chat → nothing to do here.
-    // AgoraChatScreen handles SDK init, token fetch, login, and history itself.
   }
 
   // ─── RTC TOKEN (for audio/video only) ──────────────────────────────────────
@@ -139,10 +135,9 @@ class _SessionScreenState extends State<SessionScreen>
       _log("RTC token fetch failed: $e");
     }
     // Fallback temp token
-    return "007eJxTYLBkXxwuPCOZVyvnwefljzwPqiX1LA/bwXvro/NT9olxDVsVGAwTzS0tk9OMDZIMzEwSE5OSUgzNjAwt0hINTJNMDAxNXDYuymwIZGSYnBXCxMgAgSC+IENicUlRfnxyRmJeXmpOvKGRMQMDANbDI44=";
+    return "007eJxTYHilJSV0gNEjLPtNOivDweAADfk5BjxZryW+HjPcn+I+u1KBwTDR3NIyOc3YIMnAzCQxMSkpxdDMyNAiLdHANMnEwNCkTnhpZkMgI0NpnRAjIwMEgviCDInFJUX58ckZiXl5qTnxhkbGDAwAzrAgVw=";
   }
 
-  // ─── START RTC CALL ────────────────────────────────────────────────────────
   Future<void> _startCall() async {
     if (_isStartingCall) return;
     _isStartingCall = true;
