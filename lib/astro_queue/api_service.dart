@@ -406,21 +406,54 @@ class ApiService {
 
   Future<String> getAgoraChatToken(String userId) async {
     final response = await http.get(
-      Uri.parse(
-          "$baseUrl/api/agora/chat-token?userId=$userId"),
+      Uri.parse("$baseUrl/api/agora/chat-token?userId=$userId"),
     );
 
     print("🟡 Backend Response: ${response.body}");
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return data["token"];
+      // ✅ FIXED: Backend sends "userToken", not "token"
+      return data["userToken"]; // ← Changed from data["token"]
     } else {
       throw Exception("Failed to fetch token");
     }
   }
 
-  // ✅ 11. Logout
+  Future<List<Map<String, dynamic>>> getChatHistory(int sessionId) async {
+    final response = await http.get(
+      Uri.parse("$baseUrl/api/chat/$sessionId"),
+    );
+
+    if (response.statusCode == 200) {
+      final List data = json.decode(response.body);
+      return data
+          .map((e) => e as Map<String, dynamic>)
+          .toList()
+          .reversed
+          .toList();
+    }
+    return [];
+  }
+
+  static Future<bool> extendSession(int sessionId) async {
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/api/sessions/extend-session/$sessionId"),
+        headers: {
+          "Content-Type": "application/json",
+        },
+      );
+
+      print("Extend Session: ${response.statusCode}");
+
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      print("Extend Session Error: $e");
+      return false;
+    }
+  }
+
   static Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('user_json');

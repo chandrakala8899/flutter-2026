@@ -1,16 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kAlwaysDismissedAnimation;
 
+import 'package:flutter/foundation.dart' show kAlwaysDismissedAnimation;
 import 'package:flutter/material.dart';
+import 'package:flutter_learning/astro_queue/api_service.dart';
+import 'package:flutter_learning/astro_queue/model/enumsession.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
 
-import 'sessionscreen.dart';
 import '../model/consultantresponse_model.dart';
 import '../services/chat_service.dart';
 import '../../colors.dart';
@@ -45,6 +47,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _isSending = false;
   bool _isLoadingHistory = false;
   bool _showSendButton = false;
+  bool _isExtending = false;
+  bool _hasShown10MinPopup = false;
 
   String _liveText = "";
   double _soundLevel = 0.0;
@@ -59,6 +63,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   static const int _uidCustomer = 1;
   static const int _uidPractitioner = 2;
 
+  Timer? _countdownTimer;
+  Timer? _popupTimer;
+  DateTime? _effectiveScheduledEnd;
+
+  final ApiService _apiService = ApiService();
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +76,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _initAnimations();
     _initSpeech();
     _loadChatHistory();
+
+    _effectiveScheduledEnd = widget.session.scheduledEnd;
+    _startCountdownTimer();
+    _startPopupTimer();
+
+    widget.chatService.connect(
+      widget.isCustomer ? " " : " ",
+      sessionId: widget.session.sessionId!,
+    );
 
     widget.chatService.onMessageReceived = (data) {
       final messageId = data["id"]?.toString();
@@ -80,6 +99,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         messages.insert(0, _processMessage(data));
         if (messageId != null) _serverMessages.add(messageId);
       });
+
       _scrollToBottom();
     };
 
@@ -88,6 +108,40 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _showSendButton = _controller.text.trim().isNotEmpty;
       });
     });
+  }
+
+  String _getHeaderName() {
+    if (widget.isCustomer) {
+      return widget.session.consultant?.name ?? "Practitioner";
+    } else {
+      return widget.session.customer?.name ?? "Customer";
+    }
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _startPopupTimer() {
+    _popupTimer?.cancel();
+    final endTime = _effectiveScheduledEnd ?? widget.session.scheduledEnd;
+    if (endTime != null) {
+      final timeTo10Min = endTime.subtract(const Duration(minutes: 10));
+      if (DateTime.now().isBefore(timeTo10Min)) {
+        _popupTimer = Timer(timeTo10Min.difference(DateTime.now()), () {
+          if (mounted && !_hasShown10MinPopup) {
+            _show10MinWarningPopup();
+          }
+        });
+      } else if (endTime.difference(DateTime.now()).inMinutes <= 10) {
+        if (!_hasShown10MinPopup) {
+          _show10MinWarningPopup();
+        }
+      }
+    }
   }
 
   void _initAnimations() {
@@ -113,7 +167,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     setState(() {});
 
     try {
-      final history = await _getChatHistory();
+      final history =
+          await _apiService.getChatHistory(widget.session.sessionId!);
       messages = history.map((m) => _processMessage(m)).toList();
       setState(() {});
     } catch (e) {
@@ -123,22 +178,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     _isLoadingHistory = false;
     _scrollToBottom();
-  }
-
-  Future<List<Map<String, dynamic>>> _getChatHistory() async {
-    final response = await http.get(
-      Uri.parse("http://localhost:16679/api/chat/${widget.session.sessionId}"),
-    );
-
-    if (response.statusCode == 200) {
-      final List data = json.decode(response.body);
-      return data
-          .map((e) => e as Map<String, dynamic>)
-          .toList()
-          .reversed
-          .toList();
-    }
-    return [];
   }
 
   Map<String, dynamic> _processMessage(Map<String, dynamic> data) {
@@ -190,7 +229,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       _micAnimationController?.stop();
       setState(() {
         _isListening = false;
-        _soundLevel = 0.0; // 🔥 Reset sound level
+        _soundLevel = 0.0;
       });
     } else {
       setState(() {
@@ -213,8 +252,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         },
         onSoundLevelChange: (level) {
           if (mounted) {
-            setState(
-                () => _soundLevel = math.min(level, 1.0)); // 🔥 Clamp to 0-1
+            setState(() => _soundLevel = math.min(level, 1.0));
           }
         },
         listenFor: const Duration(seconds: 30),
@@ -292,13 +330,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                 Navigator.pop(context);
                 final image =
                     await _picker.pickImage(source: ImageSource.camera);
-                if (image != null) _addImageMessage(File(image.path!));
+                if (image != null) _addImageMessage(File(image.path));
               }),
               _attachmentItem(Icons.photo, "Gallery", Colors.green, () async {
                 Navigator.pop(context);
                 final image =
                     await _picker.pickImage(source: ImageSource.gallery);
-                if (image != null) _addImageMessage(File(image.path!));
+                if (image != null) _addImageMessage(File(image.path));
               }),
               _attachmentItem(Icons.insert_drive_file, "Document", Colors.blue,
                   () async {
@@ -445,37 +483,337 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
+  String _getDurationDisplayText() {
+    final endTime = _effectiveScheduledEnd ?? widget.session.scheduledEnd;
+
+    if (widget.session.status == SessionStatus.completed &&
+        widget.session.actualDurationMinutes != null &&
+        widget.session.actualDurationMinutes! > 0) {
+      return "${widget.session.actualDurationMinutes} mins completed";
+    }
+
+    if (endTime != null) {
+      final remaining = endTime.difference(DateTime.now());
+
+      if (remaining.isNegative) {
+        final over = -remaining;
+        final min = over.inMinutes;
+        final sec = over.inSeconds % 60;
+        return "Over by ${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}";
+      }
+
+      final minutes = remaining.inMinutes;
+      final seconds = remaining.inSeconds % 60;
+      final timerStr =
+          "${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}";
+
+      return "$timerStr";
+    }
+
+    if (widget.session.scheduledDurationMinutes != null) {
+      return "${widget.session.scheduledDurationMinutes} mins scheduled";
+    }
+
+    return "Consultation";
+  }
+
+  Color _getDurationColor() {
+    final endTime = _effectiveScheduledEnd ?? widget.session.scheduledEnd;
+    if (endTime == null) return Colors.white70;
+
+    final remainingMinutes = endTime.difference(DateTime.now()).inMinutes;
+
+    if (remainingMinutes > 10) return Colors.white70;
+    if (remainingMinutes > 5) return Colors.amber;
+    return Colors.redAccent;
+  }
+
+  bool get _shouldShowExtendBanner {
+    if (!widget.isCustomer) return false;
+
+    final endTime = _effectiveScheduledEnd ?? widget.session.scheduledEnd;
+    if (endTime == null) return false;
+
+    final remaining = endTime.difference(DateTime.now());
+    return remaining.inMinutes <= 3 && remaining.inSeconds > 0;
+  }
+
+  Future<void> _extendSession() async {
+    if (_isExtending) return;
+
+    setState(() => _isExtending = true);
+
+    try {
+      final success = await ApiService.extendSession(
+        widget.session.sessionId!,
+      );
+
+      if (!mounted) return;
+
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Session extended by 15 minutes"),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadSessionDetails();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Failed to extend session"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Error: $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+
+    if (mounted) {
+      setState(() => _isExtending = false);
+    }
+  }
+
+  void _handleMenuAction(String action) {
+    switch (action) {
+      case 'extend':
+        _extendSession();
+        break;
+      case 'end_session':
+        _endSession();
+        break;
+      case 'clear_chat':
+        _clearChat();
+        break;
+    }
+  }
+
+  void _endSession() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.call_end, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Text("End Session?", style: TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content:
+            const Text("This will complete the current consultation session."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Handle end session API call
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text("End Session"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _clearChat() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Clear Chat?",
+            style: TextStyle(fontWeight: FontWeight.bold)),
+        content:
+            const Text("This will clear all messages in this conversation."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              setState(() {
+                messages.clear();
+              });
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("Clear"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _show10MinWarningPopup() {
+    if (!mounted || _hasShown10MinPopup) return;
+
+    _hasShown10MinPopup = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(Icons.timer_off, color: Colors.orange.shade700, size: 28),
+              const SizedBox(width: 12),
+              Text(
+                "Session Ending Soon!",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange.shade700,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Your session will end in approximately 10 minutes.",
+                style: TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                "Extend now to continue your consultation uninterrupted.",
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Later"),
+            ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _extendSession();
+              },
+              icon: const Icon(Icons.more_time),
+              label: const Text("Extend 15 mins"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade700,
+                foregroundColor: Colors.white,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _loadSessionDetails() async {
+    try {
+      final updatedSession = await ApiService.getCurrentSession(
+          widget.session.consultant!.id.toString());
+      if (mounted) {
+        setState(() {
+          _effectiveScheduledEnd = updatedSession!.scheduledEnd;
+        });
+        _hasShown10MinPopup = false;
+        _startPopupTimer();
+      }
+    } catch (e) {
+      print("Failed to refresh session: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final headerName = widget.isCustomer
-        ? widget.session.consultant?.name ?? "Practitioner"
-        : widget.session.customer?.name ?? "Customer";
+    final String headerName = _getHeaderName();
+    final String durationText = _getDurationDisplayText();
 
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color.fromARGB(255, 2, 40, 3),
-        title: Text(
-          headerName,
-          style: const TextStyle(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              headerName,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (durationText.isNotEmpty)
+              Text(
+                durationText,
+                style: TextStyle(
+                  color: _getDurationColor(),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.phone, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SessionScreen(
-                    session: widget.session,
-                    isCustomer: widget.isCustomer,
-                    callType: CallType.audio,
+          // ✅ THREE DOTS MENU (WhatsApp Style)
+          PopupMenuButton<String>(
+            color: Colors.black87,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            icon: const Icon(Icons.more_vert, color: Colors.white, size: 28),
+            onSelected: _handleMenuAction,
+            itemBuilder: (context) => [
+              if (widget.isCustomer)
+                PopupMenuItem(
+                  value: 'extend',
+                  child: Row(
+                    children: [
+                      Icon(Icons.more_time, color: Colors.orange, size: 20),
+                      const SizedBox(width: 12),
+                      const Text('Extend 15 mins',
+                          style: TextStyle(color: Colors.white)),
+                    ],
                   ),
                 ),
-              );
-            },
+              PopupMenuItem(
+                value: 'end_session',
+                child: Row(
+                  children: [
+                    Icon(Icons.call_end, color: Colors.red, size: 20),
+                    const SizedBox(width: 12),
+                    const Text('End Session',
+                        style: TextStyle(color: Colors.red)),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'clear_chat',
+                child: const Row(
+                  children: [
+                    Icon(Icons.delete_outline, color: Colors.grey, size: 20),
+                    SizedBox(width: 12),
+                    Text('Clear Chat', style: TextStyle(color: Colors.white)),
+                  ],
+                ),
+              ),
+            ],
           ),
         ],
-        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Stack(
         children: [
@@ -487,6 +825,47 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
           Column(
             children: [
+              if (_shouldShowExtendBanner)
+                Container(
+                  width: double.infinity,
+                  color: Colors.orange.shade700,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.timer_off, color: Colors.white),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          "Session ending soon!\nPlease extend to continue chatting.",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: _isExtending ? null : _extendSession,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: Colors.orange.shade700,
+                        ),
+                        child: _isExtending
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.orange.shade700,
+                                  ),
+                                ),
+                              )
+                            : const Text("Extend 15 mins"),
+                      ),
+                    ],
+                  ),
+                ),
               Expanded(
                 child: ListView.builder(
                   reverse: true,
@@ -539,7 +918,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // 🔥 FIXED MIC/SEND BUTTON - NO MORE CRASHES
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 200),
                       child: _showSendButton
@@ -553,8 +931,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                   backgroundColor:
                                       Colors.green.withOpacity(0.1),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(50),
-                                  ),
+                                      borderRadius: BorderRadius.circular(50)),
                                 ),
                                 onPressed: _sendMessage,
                               ),
@@ -566,13 +943,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                               child: Stack(
                                 alignment: Alignment.center,
                                 children: [
-                                  // 🔥 FIXED SOUND LEVEL CIRCLE - SAFE BOUNDS
                                   if (_isListening)
                                     AnimatedBuilder(
                                       animation: _micAnimationController ??
                                           kAlwaysDismissedAnimation,
                                       builder: (context, child) {
-                                        // 🔥 SAFE CALCULATIONS - NO CRASH
                                         final animationValue =
                                             (_micAnimationController?.value ??
                                                     0.0)
@@ -582,24 +957,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                         final pulseSize = (48.0 +
                                                 (animationValue * 16.0) +
                                                 (soundMultiplier * 12.0))
-                                            .clamp(
-                                                48.0, 80.0); // 🔥 SAFE 48-80px
+                                            .clamp(48.0, 80.0);
 
                                         return Container(
                                           width: pulseSize,
                                           height: pulseSize,
                                           decoration: BoxDecoration(
                                             shape: BoxShape.circle,
-                                            color: Colors.red.withOpacity(
-                                              0.2 +
-                                                  (animationValue * 0.2) +
-                                                  (soundMultiplier * 0.2),
-                                            ),
+                                            color: Colors.red.withOpacity(0.2 +
+                                                (animationValue * 0.2) +
+                                                (soundMultiplier * 0.2)),
                                           ),
                                         );
                                       },
                                     ),
-                                  // 🔥 MIC BUTTON
                                   IconButton(
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(
@@ -616,8 +987,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                           ? Colors.red.withOpacity(0.1)
                                           : Colors.transparent,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(50),
-                                      ),
+                                          borderRadius:
+                                              BorderRadius.circular(50)),
                                     ),
                                     onPressed: _toggleListening,
                                   ),
@@ -635,55 +1006,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildNormalInput() {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _controller,
-            decoration: InputDecoration(
-              hintText: "Type message...",
-              filled: true,
-              fillColor: Colors.grey.shade100,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(30),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-            ),
-            onSubmitted: (_) => _sendMessage(),
-            textInputAction: TextInputAction.send,
-            enabled: !_isSending,
-          ),
-        ),
-        const SizedBox(width: 10),
-        GestureDetector(
-          onTap: _isSending ? null : _toggleListening,
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.grey[200],
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.mic, color: Colors.black, size: 24),
-          ),
-        ),
-        const SizedBox(width: 10),
-        CircleAvatar(
-          radius: 22,
-          backgroundColor: _isSending ? Colors.grey : primaryColor,
-          child: IconButton(
-            icon: const Icon(Icons.send, color: Colors.white, size: 20),
-            onPressed: _isSending ? null : _sendMessage,
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   void dispose() {
+    _countdownTimer?.cancel();
+    _popupTimer?.cancel();
+    widget.chatService.disconnect();
     _micAnimationController?.stop();
     _micAnimationController?.dispose();
     _speech.stop();

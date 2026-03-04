@@ -6,9 +6,24 @@ class ConsultationSessionResponse {
   final SessionStatus? status;
   final SimpleUser? customer;
   final SimpleUser? consultant;
+
+  // Booked session fields
+  final DateTime? scheduledStart;
+  final DateTime? scheduledEnd;
+  final int? scheduledDurationMinutes;
+
+  // Live session fields (NEW)
+  final int? actualDurationMinutes; // ← This was missing before
+  final DateTime? calledAt;
+
+  // Common fields
   final DateTime? createdAt;
   final DateTime? startedAt;
   final DateTime? completedAt;
+
+  // Agora fields (for joining call)
+  final String? agoraChannel;
+  final String? agoraToken;
 
   ConsultationSessionResponse({
     this.sessionId,
@@ -16,9 +31,16 @@ class ConsultationSessionResponse {
     this.status,
     this.customer,
     this.consultant,
+    this.scheduledStart,
+    this.scheduledEnd,
+    this.scheduledDurationMinutes,
+    this.actualDurationMinutes,
+    this.calledAt,
     this.createdAt,
     this.startedAt,
     this.completedAt,
+    this.agoraChannel,
+    this.agoraToken,
   });
 
   factory ConsultationSessionResponse.fromJson(Map<String, dynamic> json) {
@@ -39,6 +61,22 @@ class ConsultationSessionResponse {
       consultant: json['consultant'] != null
           ? SimpleUser.fromJson(json['consultant'])
           : null,
+
+      // Scheduled (for bookings)
+      scheduledStart: json['scheduledStart'] != null
+          ? DateTime.tryParse(json['scheduledStart'])
+          : null,
+      scheduledEnd: json['scheduledEnd'] != null
+          ? DateTime.tryParse(json['scheduledEnd'])
+          : null,
+      scheduledDurationMinutes: json['scheduledDurationMinutes'] as int?,
+
+      // Actual duration (now always comes for completed sessions)
+      actualDurationMinutes: json['actualDurationMinutes'] as int?,
+
+      // Timestamps
+      calledAt:
+          json['calledAt'] != null ? DateTime.tryParse(json['calledAt']) : null,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'])
           : null,
@@ -48,6 +86,10 @@ class ConsultationSessionResponse {
       completedAt: json['completedAt'] != null
           ? DateTime.tryParse(json['completedAt'])
           : null,
+
+      // Agora
+      agoraChannel: json['agoraChannel'] as String?,
+      agoraToken: json['agoraToken'] as String?,
     );
   }
 
@@ -58,9 +100,16 @@ class ConsultationSessionResponse {
       'status': status?.toString().split('.').last,
       'customer': customer?.toJson(),
       'consultant': consultant?.toJson(),
+      'scheduledStart': scheduledStart?.toIso8601String(),
+      'scheduledEnd': scheduledEnd?.toIso8601String(),
+      'scheduledDurationMinutes': scheduledDurationMinutes,
+      'actualDurationMinutes': actualDurationMinutes,
+      'calledAt': calledAt?.toIso8601String(),
       'createdAt': createdAt?.toIso8601String(),
       'startedAt': startedAt?.toIso8601String(),
       'completedAt': completedAt?.toIso8601String(),
+      'agoraChannel': agoraChannel,
+      'agoraToken': agoraToken,
     };
   }
 }

@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
-import 'package:flutter_learning/astro_queue/screens/agora_chat_ui.dart';
+import 'package:flutter_learning/astro_queue/screens/chat_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/vedio_call_screen.dart';
 import 'package:flutter_learning/astro_queue/services/chat_service.dart';
 import 'package:http/http.dart' as http;
@@ -59,7 +59,7 @@ class _SessionScreenState extends State<SessionScreen>
 
   static const int _uidCustomer = 1;
   static const int _uidPractitioner = 2;
-  
+
   static const String _appId = "1a799cf30b064aabbd16218fa05b4014";
 
   bool _isStartingCall = false;
@@ -75,6 +75,7 @@ class _SessionScreenState extends State<SessionScreen>
   void initState() {
     super.initState();
     _apiService = ApiService();
+    _chatService = ChatService();
 
     _pulseController =
         AnimationController(vsync: this, duration: const Duration(seconds: 2));
@@ -82,7 +83,6 @@ class _SessionScreenState extends State<SessionScreen>
         Tween<double>(begin: 0.9, end: 1.1).animate(_pulseController);
     _pulseController.repeat(reverse: true);
 
-    // WebSocket only needed for audio/video side-chat, not for CallType.chat
     if (widget.callType != CallType.chat) {
       _chatService = ChatService(
         onMessageReceived: (data) {
@@ -110,6 +110,7 @@ class _SessionScreenState extends State<SessionScreen>
     }
 
     // Auto-start audio/video call
+
     if (widget.callType == CallType.audio ||
         widget.callType == CallType.video) {
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -135,7 +136,7 @@ class _SessionScreenState extends State<SessionScreen>
       _log("RTC token fetch failed: $e");
     }
     // Fallback temp token
-    return "007eJxTYHilJSV0gNEjLPtNOivDweAADfk5BjxZryW+HjPcn+I+u1KBwTDR3NIyOc3YIMnAzCQxMSkpxdDMyNAiLdHANMnEwNCkTnhpZkMgI0NpnRAjIwMEgviCDInFJUX58ckZiXl5qTnxhkbGDAwAzrAgVw=";
+    return "007eJxTYChrfhDXGq7AG1vvpMCVOFGt/MCWeJaozQcNDs7dcWFD2noFBsNEc0vL5DRjgyQDM5PExKSkFEMzI0OLtEQD0yQTA0OTmF3LMxsCGRk0oh1ZGBkgEMQXZEgsLinKj0/OSMzLS82JNzQyZmAAAIVqIns=";
   }
 
   Future<void> _startCall() async {
@@ -311,16 +312,15 @@ class _SessionScreenState extends State<SessionScreen>
       //   ✅ fetchHistoryMessages() from Agora SDK
       //   ✅ Real-time messaging via MessagesView
       // No websocket. No spinner here. No backend history call.
-      return AgoraChatScreen(
+      return ChatScreen(
         session: widget.session!,
         isCustomer: widget.isCustomer,
-        chatService: _apiService,
+        chatService: _chatService,
         initialMessages: const [],
-        isFullScreen: true,
+        // isFullScreen: true,
       );
     }
 
-    // ── 🔥 VIDEO / AUDIO CALL MODE ────────────────────────────────────────────
     return Scaffold(
       backgroundColor: Colors.black,
       body: _isStartingCall

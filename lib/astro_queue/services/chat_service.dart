@@ -3,12 +3,12 @@ import 'package:stomp_dart_client/stomp_dart_client.dart';
 
 class ChatService {
   StompClient? _client;
-  Function(Map<String, dynamic>) onMessageReceived;
+  Function(Map<String, dynamic>)? onMessageReceived;
 
   bool _isConnected = false;
   int? _sessionId;
 
-  ChatService({required this.onMessageReceived});
+  ChatService({this.onMessageReceived});
 
   void connect(String userId, {required int sessionId}) {
     _sessionId = sessionId;
@@ -17,7 +17,6 @@ class ChatService {
       config: StompConfig.sockJS(
         url: 'http://localhost:16679/ws',
 
-        // 🔥 REQUIRED for your backend interceptor
         stompConnectHeaders: {
           'customerId': userId,
         },
@@ -55,7 +54,7 @@ class ChatService {
 
         if (frame.body != null) {
           final data = json.decode(frame.body!);
-          onMessageReceived(data);
+          onMessageReceived!(data);
         }
       },
     );
@@ -83,10 +82,9 @@ class ChatService {
     );
   }
 
-  
-
   void disconnect() {
     _client?.deactivate();
     _isConnected = false;
   }
+  
 }

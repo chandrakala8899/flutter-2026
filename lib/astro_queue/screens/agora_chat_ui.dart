@@ -1,4 +1,5 @@
-import 'package:agora_chat_uikit/chat_uikit.dart';
+import 'package:agora_chat_sdk/agora_chat_sdk.dart';
+import 'package:agora_chat_uikit/chat_uikit.dart' hide ConnectionEventHandler;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
@@ -44,7 +45,6 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
     _resolveUsersAndInit();
   }
 
-  // ─── STEP 0: Resolve IDs from SharedPreferences ────────────────────────────
   Future<void> _resolveUsersAndInit() async {
     try {
       final user = await UserModel.getLoggedInUser();
@@ -54,7 +54,8 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
         return;
       }
 
-      _currentUid = user.agoraUid;
+      // Ensure String
+      _currentUid = user.agoraUid?.toString();
 
       if (_currentUid == null || _currentUid!.isEmpty) {
         _setError("User ID missing from stored session.\n$user");
@@ -72,8 +73,7 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
 
       if (_peerUid == null || _peerUid!.isEmpty) {
         _setError(
-          "Could not determine peer ID from session.\nRaw: ${s.toJson()}",
-        );
+            "Could not determine peer ID from session.\nRaw: ${s.toJson()}");
         return;
       }
 
@@ -85,11 +85,12 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
   }
 
   void _setError(String msg) {
-    if (mounted)
+    if (mounted) {
       setState(() {
         _errorMessage = msg;
         _isLoading = false;
       });
+    }
   }
 
   Future<String> _fetchToken() async {
@@ -97,7 +98,7 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
     final token = await widget.chatService.getAgoraChatToken(_currentUid!);
     _log("✅ [AgoraChat] Token received: $token");
     if (token.isEmpty) throw Exception("Backend returned empty token");
-    return "007eJxTYDDTMH1U8OiBr5VkeuMzET77DRz97DrTznxmtk/YmK9blaXAYJpkmmKYYpKYapaaYmJmaGFhmpxmlpJoZmJskGZqZGC8z39pZkMgI4N5pzcjIwMrAyMQgvgqDKnm5gapiZYGuoZmhia6hoZphrqJ5kmGumlp5gZJKSZAOcNkAE02JJw=";
+    return token;
   }
 
   Future<void> _initializeChat() async {
@@ -109,58 +110,85 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
         });
       }
 
-      const String hardcodedToken =
-          "007eJxTYDDTMH1U8OiBr5VkeuMzET77DRz97DrTznxmtk/YmK9blaXAYJpkmmKYYpKYapaaYmJmaGFhmpxmlpJoZmJskGZqZGC8z39pZkMgI4N5pzcjIwMrAyMQgvgqDKnm5gapiZYGuoZmhia6hoZphrqJ5kmGumlp5gZJKSZAOcNkAE02JJw=";
-
-      // 1️⃣ Init SDK
+      // Initialize Chat UIKit (appKey must match backend appId)
       await ChatUIKit.instance.init(
         options: ChatOptions(
-          appKey: "6110025533#1666962", // YOUR CHAT APP KEY
+          appKey: "6110025533#1666962", // MUST match backend appId
           autoLogin: false,
         ),
       );
-
       _log("✅ [AgoraChat] SDK initialised");
 
-      // 2️⃣ Logout old session if exists
+      // Logout stale session
       final loggedInUser = ChatUIKit.instance.currentUserId;
       if (loggedInUser != null) {
         await ChatUIKit.instance.logout();
-        _log("🔄 Logged out stale session: $loggedInUser");
+        _log("🔄 [AgoraChat] Logged out stale session: $loggedInUser");
       }
 
-      // 3️⃣ Add connection handler
+      // Fetch token
+      final token = await _fetchToken();
+
+      // Register connection handler before login
       ChatClient.getInstance.addConnectionEventHandler(
         _handlerKey,
         ConnectionEventHandler(
           onConnected: () {
-            _log("🔗 TCP connected — loading history");
+            _log("🔗 [AgoraChat] TCP connected — loading history");
             _loadHistory();
           },
-          onDisconnected: () => _log("🔌 TCP disconnected"),
+          onDisconnected: () => _log("🔌 [AgoraChat] TCP disconnected"),
           onTokenWillExpire: () async {
-            _log("⚠️ Token will expire (hardcoded token mode)");
+            _log("⚠️ [AgoraChat] Token expiring — fetching new token");
+            try {
+              final newToken = await _fetchToken();
+              // Logout + re-login is the reliable token refresh approach
+              await ChatUIKit.instance.logout();
+              await ChatUIKit.instance.loginWithToken(
+                userId: _currentUid!,
+                token: newToken,
+              );
+              _log("✅ [AgoraChat] Token refreshed via re-login");
+            } catch (e) {
+              _log("❌ [AgoraChat] Token refresh failed: $e");
+            }
           },
-          onTokenDidExpire: () {
-            _log("🔴 Token expired — app restart required in hardcode mode");
+          onTokenDidExpire: () async {
+            _log("🔴 [AgoraChat] Token expired — full re-init");
+            await _initializeChat();
           },
         ),
       );
 
-      // 4️⃣ Login with HARDCODED token
+      // Login with token
       await ChatUIKit.instance.loginWithToken(
         userId: _currentUid!,
-        token: hardcodedToken,
+        token: token,
       );
+      _log("✅ [AgoraChat] Logged in as: $_currentUid");
 
-      _log("✅ Logged in as $_currentUid");
-
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     } catch (e) {
-      _log("❌ Init/Login error: $e");
+      _log("❌ [AgoraChat] Init/Login error: $e");
       _setError(e.toString());
     }
   }
+
+  // Check if user is an Agora Chat user (by login ping)
+  // Future<bool> _isAgoraChatUser(String userId, String token) async {
+  //   try {
+  //     await ChatClient.getInstance.loginWithToken(
+  //       userId: userId,
+  //       agoraToken: token,
+  //     );
+  //     await ChatClient.getInstance.logout();
+  //     return true;
+  //   } catch (e) {
+  //     return false;
+  //   }
+  // }
 
   // ─── HISTORY (called from onConnected — TCP guaranteed live) ───────────────
   Future<void> _loadHistory() async {
@@ -193,6 +221,7 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
     super.dispose();
   }
 
+  // ─── BUILD ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final body = _buildBody();
@@ -209,8 +238,10 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
           children: [
             CircularProgressIndicator(color: Color(0xFF075E54)),
             SizedBox(height: 16),
-            Text("Connecting to chat…",
-                style: TextStyle(color: Colors.white70, fontSize: 15)),
+            Text(
+              "Connecting to chat…",
+              style: TextStyle(color: Colors.white70, fontSize: 15),
+            ),
           ],
         ),
       );
@@ -225,9 +256,11 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
             children: [
               Icon(Icons.error_outline, color: Colors.red[300], size: 64),
               const SizedBox(height: 16),
-              Text(_errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
               const SizedBox(height: 24),
               ElevatedButton.icon(
                 onPressed: _resolveUsersAndInit,
@@ -247,7 +280,6 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
     }
 
     // MessagesView reads from Agora SDK's internal store
-    // History populated by fetchHistoryMessages in onConnected
     return MessagesView(
       profile: ChatUIKitProfile.contact(id: _peerUid!),
     );
@@ -265,7 +297,9 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.2), shape: BoxShape.circle),
+                color: Colors.white.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
               child: Icon(
                 widget.isCustomer ? Icons.person : Icons.support_agent,
                 color: Colors.white,
@@ -280,12 +314,15 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
                   Text(
                     widget.isCustomer ? "Practitioner" : "Customer",
                     style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16),
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                    ),
                   ),
-                  const Text("online",
-                      style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const Text(
+                    "online",
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                 ],
               ),
             ),
@@ -293,11 +330,13 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
         ),
         actions: [
           IconButton(
-              icon: const Icon(Icons.videocam, color: Colors.white),
-              onPressed: () => _log("📹 Video call tapped")),
+            icon: const Icon(Icons.videocam, color: Colors.white),
+            onPressed: () => _log("📹 Video call tapped"),
+          ),
           IconButton(
-              icon: const Icon(Icons.call, color: Colors.white),
-              onPressed: () => _log("📞 Voice call tapped")),
+            icon: const Icon(Icons.call, color: Colors.white),
+            onPressed: () => _log("📞 Voice call tapped"),
+          ),
           const SizedBox(width: 8),
         ],
       ),
@@ -328,7 +367,10 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: const [
           BoxShadow(
-              color: Colors.black26, blurRadius: 20, offset: Offset(0, -2))
+            color: Colors.black26,
+            blurRadius: 20,
+            offset: Offset(0, -2),
+          ),
         ],
       ),
       child: Column(
@@ -346,8 +388,9 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle),
+                      color: Colors.white.withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
                     child: Icon(
                       widget.isCustomer ? Icons.person : Icons.support_agent,
                       color: Colors.white,
@@ -359,34 +402,45 @@ class _AgoraChatScreenState extends State<AgoraChatScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("Live Chat",
-                            style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 18)),
+                        const Text(
+                          "Live Chat",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 18,
+                          ),
+                        ),
                         Text(
                           widget.isCustomer ? "Practitioner" : "Customer",
                           style: const TextStyle(
-                              color: Colors.white70, fontSize: 14),
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                      icon: const Icon(Icons.videocam, color: Colors.white),
-                      onPressed: () => _log("📹 Video call tapped")),
+                    icon: const Icon(Icons.videocam, color: Colors.white),
+                    onPressed: () => _log("📹 Video call tapped"),
+                  ),
                   IconButton(
-                      icon: const Icon(Icons.call, color: Colors.white),
-                      onPressed: () => _log("📞 Voice call tapped")),
+                    icon: const Icon(Icons.call, color: Colors.white),
+                    onPressed: () => _log("📞 Voice call tapped"),
+                  ),
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          shape: BoxShape.circle),
-                      child: const Icon(Icons.close,
-                          color: Colors.white, size: 20),
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                   ),
                 ],
