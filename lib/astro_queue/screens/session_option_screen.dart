@@ -1,16 +1,67 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
 
-class SessionOptionScreen extends StatelessWidget {
+class SessionOptionScreen extends StatefulWidget {
   final ConsultationSessionResponse? session;
-  final bool isCustomer;
+  final bool isCustomer; // ← Now directly used (no reloading needed)
 
   const SessionOptionScreen({
     super.key,
     this.session,
     required this.isCustomer,
   });
+
+  @override
+  State<SessionOptionScreen> createState() => _SessionOptionScreenState();
+}
+
+class _SessionOptionScreenState extends State<SessionOptionScreen> {
+  late final Timer _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer.cancel();
+    super.dispose();
+  }
+
+  bool get _canJoinNow {
+    final session = widget.session;
+    if (session?.scheduledStart == null) return true;
+
+    final now = DateTime.now();
+    final allowedTime =
+        session!.scheduledStart!.subtract(const Duration(minutes: 5));
+
+    return now.isAfter(allowedTime) || now.isAtSameMomentAs(allowedTime);
+  }
+
+  String get _availabilityMessage {
+    if (_canJoinNow) return '';
+
+    final session = widget.session;
+    if (session?.scheduledStart == null) return '';
+
+    final allowedTime =
+        session!.scheduledStart!.subtract(const Duration(minutes: 5));
+
+    final remaining = allowedTime.difference(DateTime.now());
+
+    if (remaining.isNegative) return '';
+
+    final minutes = remaining.inMinutes;
+
+    return "Available in $minutes minutes";
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +75,7 @@ class SessionOptionScreen extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
         centerTitle: true,
-        iconTheme: IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SafeArea(
         child: Column(
@@ -39,13 +90,26 @@ class SessionOptionScreen extends StatelessWidget {
 
             const SizedBox(height: 40),
 
-            /// OPTIONS TITLE
-            const Text(
-              "Choose Session Type",
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
+            /// TITLE + MESSAGE (only for customer)
+            Column(
+              children: [
+                const Text(
+                  "Choose Session Type",
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                ),
+                if (_availabilityMessage.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      _availabilityMessage,
+                      style: TextStyle(
+                        color: Colors.orange.shade700,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+              ],
             ),
 
             const SizedBox(height: 25),
@@ -92,20 +156,12 @@ class SessionOptionScreen extends StatelessWidget {
     );
   }
 
-  /// 🔹 Session Info Card
   Widget _buildSessionInfoCard() {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withOpacity(0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Row(
         children: [
@@ -117,13 +173,10 @@ class SessionOptionScreen extends StatelessWidget {
           const SizedBox(width: 16),
           Expanded(
             child: Text(
-              isCustomer
+              widget.isCustomer
                   ? "Connected with Practitioner"
                   : "Connected with Customer",
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -131,7 +184,6 @@ class SessionOptionScreen extends StatelessWidget {
     );
   }
 
-  /// 🔹 Option Card
   Widget _buildOptionCard(
     BuildContext context, {
     required IconData icon,
@@ -140,64 +192,90 @@ class SessionOptionScreen extends StatelessWidget {
     required Color color,
     required CallType callType,
   }) {
+    final bool enabled = _canJoinNow;
+
     return InkWell(
       borderRadius: BorderRadius.circular(18),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SessionScreen(
-              session: session,
-              isCustomer: false,
-              callType: callType,
-            ),
+      onTap: enabled
+          ? () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SessionScreen(
+                    session: widget.session,
+                    isCustomer: widget.isCustomer,
+                    callType: callType,
+                  ),
+                ),
+              );
+            }
+          : null,
+      child: Opacity(
+        opacity: enabled ? 1.0 : 0.55,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+                color: enabled
+                    ? color.withOpacity(0.2)
+                    : Colors.grey.withOpacity(0.2)),
+            boxShadow: [
+              BoxShadow(
+                color: (enabled ? color : Colors.grey).withOpacity(0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: color.withOpacity(0.2)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 8),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                shape: BoxShape.circle,
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: (enabled ? color : Colors.grey).withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  color: enabled ? color : Colors.grey,
+                  size: 26,
+                ),
               ),
-              child: Icon(icon, color: color, size: 26),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                ],
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: enabled ? null : Colors.grey.shade400,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: enabled ? Colors.grey : Colors.grey.shade300,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const Icon(Icons.arrow_forward_ios_rounded, size: 18),
-          ],
+              Icon(
+                enabled
+                    ? Icons.arrow_forward_ios_rounded
+                    : Icons.lock_clock_rounded,
+                size: 18,
+                color: enabled ? null : Colors.grey.shade400,
+              ),
+            ],
+          ),
         ),
       ),
     );

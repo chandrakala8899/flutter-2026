@@ -436,21 +436,26 @@ class ApiService {
     return [];
   }
 
-  static Future<bool> extendSession(int sessionId) async {
+  static Future<Map<String, dynamic>> extendSession(String sessionId) async {
     try {
       final response = await http.post(
         Uri.parse("$baseUrl/api/sessions/extend-session/$sessionId"),
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: {'Content-Type': 'application/json'},
       );
 
-      print("Extend Session: ${response.statusCode}");
-
-      return response.statusCode == 200 || response.statusCode == 204;
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        DateTime? newEnd =
+            DateTime.tryParse(data['newScheduledEnd']?.toString() ?? '');
+        return {
+          'success': data['success'] == true,
+          'newScheduledEnd': newEnd,
+        };
+      }
+      return {'success': false};
     } catch (e) {
-      print("Extend Session Error: $e");
-      return false;
+      debugPrint("ExtendSession error: $e");
+      return {'success': false};
     }
   }
 

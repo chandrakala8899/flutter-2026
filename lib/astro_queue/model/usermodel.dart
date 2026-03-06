@@ -47,8 +47,7 @@ class UserModel {
         : int.tryParse(json['userId']?.toString() ?? '');
 
     // id = explicit String id field, fallback to userId as String
-    final id = json['id']?.toString()
-        ?? userId?.toString();
+    final id = json['id']?.toString() ?? userId?.toString();
 
     return UserModel(
       userId: userId,
@@ -106,7 +105,7 @@ class UserModel {
 
   Role get role => roleEnum;
 
-  bool get isCustomer     => roleEnum == Role.customer;
+  bool get isCustomer => roleEnum == Role.customer;
   bool get isPractitioner => roleEnum == Role.practitioner;
 
   /// The single source-of-truth ID string for Agora IM.

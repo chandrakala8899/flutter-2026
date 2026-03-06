@@ -131,8 +131,6 @@ class _PractitionerHomeState extends State<PractitionerHome> {
 
     try {
       print("Joining session ID: ${currentSession!.sessionId}");
-
-      // Show loading
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -457,7 +455,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
               const SizedBox(width: 16),
               Expanded(
                 child: _buildStatCard(
-                  "🎥 Active Call",
+                  "🎥 Active Session",
                   hasActiveCall ? "1" : "0",
                   hasActiveCall ? Colors.green : Colors.grey,
                   hasActiveCall ? () => _joinCurrentSession() : null,
@@ -495,7 +493,7 @@ class _PractitionerHomeState extends State<PractitionerHome> {
                   child: ElevatedButton.icon(
                     onPressed: () => _joinCurrentSession(),
                     icon: const Icon(Icons.videocam, color: Colors.white),
-                    label: const Text("📞 Join Call",
+                    label: const Text("Join Session",
                         style: TextStyle(fontWeight: FontWeight.bold)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade700,

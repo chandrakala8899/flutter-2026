@@ -350,7 +350,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       .toList();
 
   int get liveCallCount =>
-      allSessions.where((s) => s.status == SessionStatus.inProgress).length;
+      allSessions.where((s) => s.status == SessionStatus.called).length;
 
   void _openSession(ConsultationSessionResponse session) {
     Navigator.push(

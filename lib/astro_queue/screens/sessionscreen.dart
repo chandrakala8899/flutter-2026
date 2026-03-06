@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+import 'package:flutter_learning/astro_queue/screens/sessionextend_banner.dart';
 
 void _log(String msg) {
   if (kDebugMode) debugPrint(msg);
@@ -51,6 +52,10 @@ class _SessionScreenState extends State<SessionScreen>
   int? _remoteUid;
   SessionStatus _currentStatus = SessionStatus.waiting;
 
+  // ✅ Session Extension State
+  bool _isExtending = false;
+  DateTime? _effectiveScheduledEnd;
+
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   final TextEditingController _messageController = TextEditingController();
@@ -71,11 +76,15 @@ class _SessionScreenState extends State<SessionScreen>
 
   static const ValueKey _remoteVideoKey = ValueKey('remote_video');
 
+  Timer? _durationTimer;
+
   @override
   void initState() {
     super.initState();
     _apiService = ApiService();
     _chatService = ChatService();
+
+    _effectiveScheduledEnd = widget.session?.scheduledEnd;
 
     _pulseController =
         AnimationController(vsync: this, duration: const Duration(seconds: 2));
@@ -109,8 +118,6 @@ class _SessionScreenState extends State<SessionScreen>
       }
     }
 
-    // Auto-start audio/video call
-
     if (widget.callType == CallType.audio ||
         widget.callType == CallType.video) {
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -120,7 +127,178 @@ class _SessionScreenState extends State<SessionScreen>
     }
   }
 
-  // ─── RTC TOKEN (for audio/video only) ──────────────────────────────────────
+  // ✅ FIXED & ROBUST EXTENSION (same logic as ChatScreen)
+  Future<void> _extendSession() async {
+    if (_isExtending || widget.session?.sessionId == null) return;
+
+    setState(() => _isExtending = true);
+
+    try {
+      final result =
+          await ApiService.extendSession(widget.session!.sessionId!.toString());
+
+      if (result['success'] == true && mounted) {
+        // Safe DateTime parsing (backend may return String or DateTime)
+        DateTime? newEndTime;
+        final raw = result['newScheduledEnd'];
+        if (raw is String) {
+          newEndTime = DateTime.tryParse(raw);
+        } else if (raw is DateTime) {
+          newEndTime = raw;
+        }
+
+        setState(() {
+          _effectiveScheduledEnd = newEndTime;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: const [
+                Icon(Icons.more_time, color: Colors.white),
+                SizedBox(width: 8),
+                Text("Extended +15 mins ✓"),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Extension failed"),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      _log("Extend error: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.error, color: Colors.white),
+                SizedBox(width: 8),
+                Text("Extension failed"),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isExtending = false);
+    }
+  }
+
+  void _startDurationTimer() {
+    _durationTimer?.cancel();
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _isInCall) setState(() {});
+    });
+  }
+
+  void _stopDurationTimer() {
+    _durationTimer?.cancel();
+    _durationTimer = null;
+  }
+
+  String _getDurationDisplayText() {
+    final session = widget.session;
+    if (session == null) return "Live";
+
+    final endTime = _effectiveScheduledEnd ?? session.scheduledEnd;
+
+    if (session.status == SessionStatus.completed &&
+        session.actualDurationMinutes != null &&
+        session.actualDurationMinutes! > 0) {
+      return "${session.actualDurationMinutes} mins completed";
+    }
+
+    if (endTime != null) {
+      final remaining = endTime.difference(DateTime.now());
+
+      if (remaining.isNegative) {
+        final over = -remaining;
+        final min = over.inMinutes;
+        final sec = over.inSeconds % 60;
+        return "Over by ${min.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}";
+      }
+
+      final minutes = remaining.inMinutes;
+      final seconds = remaining.inSeconds % 60;
+
+      if (minutes <= 5) {
+        return "${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')} ⏰";
+      }
+
+      return "${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}";
+    }
+
+    if (session.scheduledDurationMinutes != null) {
+      return "${session.scheduledDurationMinutes} mins scheduled";
+    }
+
+    return "Live";
+  }
+
+  Color _getDurationColor() {
+    final endTime = _effectiveScheduledEnd ?? widget.session?.scheduledEnd;
+    if (endTime == null) return Colors.white70;
+
+    final remainingMinutes = endTime.difference(DateTime.now()).inMinutes;
+    if (remainingMinutes > 10) return Colors.white;
+    if (remainingMinutes > 5) return Colors.amber;
+    return Colors.redAccent;
+  }
+
+  Widget _buildCallTimer() {
+    if (!_isInCall || !_remoteUserJoined) return const SizedBox.shrink();
+
+    final text = _getDurationDisplayText();
+    final isUrgent = text.contains('⏰') || text.startsWith("Over by");
+
+    return Positioned(
+      top: 48,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.85),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(
+                color: _getDurationColor().withOpacity(0.5), width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                text,
+                style: TextStyle(
+                  color: _getDurationColor(),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                ),
+              ),
+              if (isUrgent) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.warning_amber, size: 18, color: Colors.redAccent),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<String> _fetchAgoraToken() async {
     final uid = widget.isCustomer ? _uidCustomer : _uidPractitioner;
     try {
@@ -135,8 +313,7 @@ class _SessionScreenState extends State<SessionScreen>
     } catch (e) {
       _log("RTC token fetch failed: $e");
     }
-    // Fallback temp token
-    return "007eJxTYChrfhDXGq7AG1vvpMCVOFGt/MCWeJaozQcNDs7dcWFD2noFBsNEc0vL5DRjgyQDM5PExKSkFEMzI0OLtEQD0yQTA0OTmF3LMxsCGRk0oh1ZGBkgEMQXZEgsLinKj0/OSMzLS82JNzQyZmAAAIVqIns=";
+    return "007eJxTYLB0DNlXnWmtMdXk2GHuisX/5lwsFf7YEFGx8pWzmlCv1noFBsNEc0vL5DRjgyQDM5PExKSkFEMzI0OLtEQD0yQTA0MTu/8rMhsCGRm4cyexMjJAIIgvyJBYXFKUH5+ckZiXl5oTb2hkzMAAAMp7I0Y=";
   }
 
   Future<void> _startCall() async {
@@ -163,7 +340,7 @@ class _SessionScreenState extends State<SessionScreen>
 
       _engine!.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (connection, elapsed) {
-          _log("✅ JOINED: $_channelName");
+          _log("JOINED: $_channelName");
           if (mounted) {
             setState(() {
               _localUserJoined = true;
@@ -173,12 +350,13 @@ class _SessionScreenState extends State<SessionScreen>
           }
         },
         onUserJoined: (connection, remoteUid, elapsed) {
-          _log("🎉 REMOTE JOINED: $remoteUid");
+          _log("REMOTE JOINED: $remoteUid");
           if (mounted) {
             setState(() {
               _remoteUid = remoteUid;
               _remoteUserJoined = true;
             });
+            _startDurationTimer();
           }
         },
         onFirstRemoteVideoFrame:
@@ -260,6 +438,7 @@ class _SessionScreenState extends State<SessionScreen>
   }
 
   Future<void> _leaveCall() async {
+    _stopDurationTimer();
     await _cleanupEngine();
     if (widget.callType != CallType.chat) _chatService.disconnect();
     if (mounted) {
@@ -295,29 +474,18 @@ class _SessionScreenState extends State<SessionScreen>
     _messageController.clear();
   }
 
-  // ─── BUILD ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    // ── 🔥 CHAT MODE: hand off entirely to AgoraChatScreen ───────────────────
     if (widget.callType == CallType.chat) {
       if (widget.session == null) {
         return const Scaffold(
-          body: Center(child: Text("No session provided.")),
-        );
+            body: Center(child: Text("No session provided.")));
       }
-      // AgoraChatScreen owns everything:
-      //   ✅ Agora IM SDK init
-      //   ✅ Token fetch from backend (printed to console)
-      //   ✅ Login with token
-      //   ✅ fetchHistoryMessages() from Agora SDK
-      //   ✅ Real-time messaging via MessagesView
-      // No websocket. No spinner here. No backend history call.
       return ChatScreen(
         session: widget.session!,
         isCustomer: widget.isCustomer,
         chatService: _chatService,
         initialMessages: const [],
-        // isFullScreen: true,
       );
     }
 
@@ -337,6 +505,24 @@ class _SessionScreenState extends State<SessionScreen>
           : Stack(
               children: [
                 if (_isInCall) _buildLiveCallView() else _buildWaitingView(),
+
+                // ✅ SessionExtendBanner (works on Video & Audio)
+                if (_isInCall && widget.session != null)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SessionExtendBanner(
+                      session: widget.session!,
+                      isCustomer: widget.isCustomer,
+                      effectiveScheduledEnd: _effectiveScheduledEnd,
+                      onExtend: _extendSession,
+                      isExtending: _isExtending,
+                    ),
+                  ),
+
+                if (_isInCall) _buildCallTimer(),
+
                 if (_errorMessage != null)
                   Positioned(
                     top: 100,
@@ -369,7 +555,8 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-  // ─── LIVE CALL VIEW ────────────────────────────────────────────────────────
+  // ... (all other methods _buildLiveCallView, _buildAudioCallScreen, etc. remain exactly the same - no changes needed)
+
   Widget _buildLiveCallView() {
     return Stack(
       fit: StackFit.expand,
@@ -413,7 +600,6 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-  // ─── AUDIO CALL SCREEN ─────────────────────────────────────────────────────
   Widget _buildAudioCallScreen() {
     return Container(
       decoration: const BoxDecoration(
@@ -524,7 +710,10 @@ class _SessionScreenState extends State<SessionScreen>
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-                color: color.withOpacity(0.4), blurRadius: 20, spreadRadius: 4),
+              color: color.withOpacity(0.4),
+              blurRadius: 20,
+              spreadRadius: 4,
+            ),
           ],
         ),
         child: Icon(icon, color: Colors.white, size: 32),
@@ -532,7 +721,6 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-  // ─── WAITING VIEW (before joining) ─────────────────────────────────────────
   Widget _buildWaitingView() {
     return Container(
       decoration: const BoxDecoration(
@@ -568,9 +756,10 @@ class _SessionScreenState extends State<SessionScreen>
                       ? "Connecting to Practitioner"
                       : "Waiting for Customer",
                   style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white),
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -607,7 +796,6 @@ class _SessionScreenState extends State<SessionScreen>
     );
   }
 
-  // ─── WAITING SCREEN (joined, remote not yet connected) ─────────────────────
   Widget _buildWaitingScreen() {
     return Container(
       color: Colors.black,
@@ -639,10 +827,10 @@ class _SessionScreenState extends State<SessionScreen>
 
   @override
   void dispose() {
+    _stopDurationTimer();
     _cleanupEngine();
     _pulseController.dispose();
     _messageController.dispose();
-    // Only disconnect websocket if it was used (audio/video mode)
     if (widget.callType != CallType.chat) _chatService.disconnect();
     super.dispose();
   }

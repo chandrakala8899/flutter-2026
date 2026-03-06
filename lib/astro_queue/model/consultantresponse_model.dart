@@ -13,7 +13,7 @@ class ConsultationSessionResponse {
   final int? scheduledDurationMinutes;
 
   // Live session fields (NEW)
-  final int? actualDurationMinutes; // ← This was missing before
+  final int? actualDurationMinutes; 
   final DateTime? calledAt;
 
   // Common fields
