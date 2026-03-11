@@ -5,7 +5,7 @@ import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
 
 class SessionOptionScreen extends StatefulWidget {
   final ConsultationSessionResponse? session;
-  final bool isCustomer; // ← Now directly used (no reloading needed)
+  final bool isCustomer;
 
   const SessionOptionScreen({
     super.key,
@@ -37,34 +37,54 @@ class _SessionOptionScreenState extends State<SessionOptionScreen> {
   bool get _canJoinNow {
     final session = widget.session;
     if (session?.scheduledStart == null) return true;
-
     final now = DateTime.now();
     final allowedTime =
         session!.scheduledStart!.subtract(const Duration(minutes: 5));
-
     return now.isAfter(allowedTime) || now.isAtSameMomentAs(allowedTime);
   }
 
   String get _availabilityMessage {
     if (_canJoinNow) return '';
-
     final session = widget.session;
     if (session?.scheduledStart == null) return '';
-
     final allowedTime =
         session!.scheduledStart!.subtract(const Duration(minutes: 5));
-
     final remaining = allowedTime.difference(DateTime.now());
-
     if (remaining.isNegative) return '';
+    return "Available in ${remaining.inMinutes} minutes";
+  }
 
-    final minutes = remaining.inMinutes;
+  void _navigateToSession(CallType callType) {
+    if (widget.session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text("Session data not available. Please go back and try again."),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
-    return "Available in $minutes minutes";
+    // ✅ Use push (not pushReplacement) so back arrow returns here correctly
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionScreen(
+          session: widget.session!,
+          isCustomer: widget.isCustomer,
+          callType: callType,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    // ✅ FIXED: Removed WillPopScope entirely.
+    // WillPopScope was calling Navigator.pop() AND returning false = double-pop bug.
+    // Now Flutter handles back navigation naturally for this screen.
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       appBar: AppBar(
@@ -81,16 +101,11 @@ class _SessionOptionScreenState extends State<SessionOptionScreen> {
         child: Column(
           children: [
             const SizedBox(height: 30),
-
-            /// SESSION INFO CARD
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: _buildSessionInfoCard(),
             ),
-
             const SizedBox(height: 40),
-
-            /// TITLE + MESSAGE (only for customer)
             Column(
               children: [
                 const Text(
@@ -109,12 +124,21 @@ class _SessionOptionScreenState extends State<SessionOptionScreen> {
                       ),
                     ),
                   ),
+                if (widget.session == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      "Session data unavailable",
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
               ],
             ),
-
             const SizedBox(height: 25),
-
-            /// OPTIONS
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -192,24 +216,11 @@ class _SessionOptionScreenState extends State<SessionOptionScreen> {
     required Color color,
     required CallType callType,
   }) {
-    final bool enabled = _canJoinNow;
+    final bool enabled = _canJoinNow && widget.session != null;
 
     return InkWell(
       borderRadius: BorderRadius.circular(18),
-      onTap: enabled
-          ? () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => SessionScreen(
-                    session: widget.session,
-                    isCustomer: widget.isCustomer,
-                    callType: callType,
-                  ),
-                ),
-              );
-            }
-          : null,
+      onTap: enabled ? () => _navigateToSession(callType) : null,
       child: Opacity(
         opacity: enabled ? 1.0 : 0.55,
         child: Container(
@@ -237,11 +248,8 @@ class _SessionOptionScreenState extends State<SessionOptionScreen> {
                   color: (enabled ? color : Colors.grey).withOpacity(0.12),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(
-                  icon,
-                  color: enabled ? color : Colors.grey,
-                  size: 26,
-                ),
+                child:
+                    Icon(icon, color: enabled ? color : Colors.grey, size: 26),
               ),
               const SizedBox(width: 16),
               Expanded(

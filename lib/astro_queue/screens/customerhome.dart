@@ -1,4 +1,4 @@
-// 🔥 COMPLETE CustomerHome.dart - 100% WORKING & ERROR-FREE
+
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
@@ -141,6 +141,10 @@ class _CustomerHomeState extends State<CustomerHome> {
 
         debugPrint("🔥 Session update: $data");
 
+        if (data['type'] == 'session_extended') {
+          _handleSessionExtended(data);
+          return;
+        }
         if (data['type'] == 'incoming_call') {
           _handleIncomingCall(data);
           return;
@@ -156,9 +160,9 @@ class _CustomerHomeState extends State<CustomerHome> {
           _autoOpenSession(data);
         }
       },
-      onIncomingCall: (data) {
-        debugPrint("📲 Customer incoming call: $data");
-        _handleIncomingCall(data);
+      onExpiryNotification: (data) {
+        if (!mounted) return;
+        _showExpiryNotification(data);
       },
       onError: (error) {
         debugPrint("WebSocket error: $error");
@@ -175,21 +179,80 @@ class _CustomerHomeState extends State<CustomerHome> {
     }
   }
 
+  void _handleSessionExtended(Map<String, dynamic> data) {
+    final sessionId = data['sessionId'] as int?;
+    final newEndStr = data['newScheduledEnd'] as String?;
+    final minutes = data['extendedMinutes'] as int? ?? 15;
+
+    if (sessionId == null) return;
+
+    DateTime? newEnd = DateTime.tryParse(newEndStr ?? '');
+
+    setState(() {
+      for (var i = 0; i < allSessions.length; i++) {
+        if (allSessions[i].sessionId == sessionId) {
+          allSessions[i] = allSessions[i].copyWith(scheduledEnd: newEnd);
+          break;
+        }
+      }
+    });
+
+    // Beautiful notification
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "✅ Session extended by $minutes minutes!\nNew end time: ${newEnd?.toString().substring(0, 16) ?? newEndStr}",
+          style: const TextStyle(fontSize: 15),
+        ),
+        backgroundColor: Colors.green.shade700,
+        duration: const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _showExpiryNotification(Map<String, dynamic> data) {
+    final message = data['message'] ?? "Session update";
+    final action = data['action'] ?? "";
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: Text(action == "REBOOK"
+            ? "❌ Session Expired"
+            : "⚠️ Session Expiring Soon"),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+          if (action == "EXTEND")
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                // Call your extendWaitingBooking API here if implemented
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text("Extend API call coming soon...")),
+                );
+              },
+              child: const Text("Extend Now"),
+            ),
+        ],
+      ),
+    );
+  }
+
   void _handleIncomingCall(Map<String, dynamic> data) {
     if (!mounted) return;
 
     try {
       final sessionData = data['session'] as Map<String, dynamic>? ?? data;
-
-      if (sessionData.isEmpty) {
-        debugPrint("❌ Empty session data");
-        return;
-      }
-
       final session = ConsultationSessionResponse.fromJson(sessionData);
       final callTypeStr = data['callType']?.toString() ?? 'video';
-
-      debugPrint("📞 Showing incoming call for session: ${session.sessionId}");
 
       Navigator.push(
         context,
@@ -259,15 +322,12 @@ class _CustomerHomeState extends State<CustomerHome> {
 
   Future<void> _joinCalledSession(Map<String, dynamic> data) async {
     try {
-      // ✅ FIXED: Explicit nullable handling with try-catch
       ConsultationSessionResponse? activeSession;
 
       try {
-        activeSession = allSessions.firstWhere(
-          (s) => s.status == SessionStatus.called,
-        );
+        activeSession =
+            allSessions.firstWhere((s) => s.status == SessionStatus.called);
       } catch (_) {
-        // No called session, use first available
         activeSession = allSessions.isNotEmpty ? allSessions.first : null;
       }
 
@@ -276,7 +336,7 @@ class _CustomerHomeState extends State<CustomerHome> {
           context,
           MaterialPageRoute(
             builder: (_) => SessionScreen(
-              session: activeSession,
+              session: activeSession!,
               isCustomer: true,
               callType: CallType.video,
             ),
@@ -305,9 +365,7 @@ class _CustomerHomeState extends State<CustomerHome> {
       return;
     }
 
-    // ✅ FIXED: Same pattern
     ConsultationSessionResponse? session;
-
     try {
       session = allSessions.firstWhere((s) => s.sessionId == sessionId);
     } catch (_) {
@@ -339,7 +397,6 @@ class _CustomerHomeState extends State<CustomerHome> {
     }
   }
 
-  // Getters
   List<ConsultationSessionResponse> get waitingSessions =>
       allSessions.where((s) => s.status == SessionStatus.waiting).toList();
 
@@ -383,15 +440,11 @@ class _CustomerHomeState extends State<CustomerHome> {
     final practitionerId = practitioner.userId!;
     if (_bookingInProgress.contains(practitionerId)) return;
 
-    setState(() {
-      _bookingInProgress.add(practitionerId);
-    });
+    setState(() => _bookingInProgress.add(practitionerId));
 
     try {
-      final startTime = await pickDateTime(
-        context,
-        title: "Select Consultation Start Time",
-      );
+      final startTime =
+          await pickDateTime(context, title: "Select Consultation Start Time");
       if (startTime == null || !mounted) return;
 
       DateTime? endTime;
@@ -402,7 +455,6 @@ class _CustomerHomeState extends State<CustomerHome> {
           title: "Select Consultation End Time",
         );
         if (endTime == null || !mounted) return;
-
         if (endTime.isBefore(startTime)) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("End time must be after start time")),
@@ -428,13 +480,11 @@ class _CustomerHomeState extends State<CustomerHome> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel"),
-            ),
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Cancel")),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text("Book"),
-            ),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("Book")),
           ],
         ),
       );
@@ -454,14 +504,10 @@ class _CustomerHomeState extends State<CustomerHome> {
         endDate: endTime,
       );
 
-      final session = await ApiService.createSession(
-        request: request,
-        context: context,
-      );
+      final session =
+          await ApiService.createSession(request: request, context: context);
 
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.pop(context);
-      }
+      if (mounted && Navigator.canPop(context)) Navigator.pop(context);
 
       if (session != null && mounted) {
         Navigator.push(
@@ -478,17 +524,12 @@ class _CustomerHomeState extends State<CustomerHome> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Booking failed: $e"),
-            backgroundColor: Colors.red.shade700,
-          ),
+              content: Text("Booking failed: $e"),
+              backgroundColor: Colors.red.shade700),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _bookingInProgress.remove(practitionerId);
-        });
-      }
+      if (mounted) setState(() => _bookingInProgress.remove(practitionerId));
     }
   }
 
@@ -497,16 +538,13 @@ class _CustomerHomeState extends State<CustomerHome> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        title: Text(
-          "Welcome ${currentUser?.name ?? 'Customer'}",
-          style: const TextStyle(color: Colors.white),
-        ),
+        title: Text("Welcome ${currentUser?.name ?? 'Customer'}",
+            style: const TextStyle(color: Colors.white)),
         backgroundColor: Colors.orange.shade700,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: () => _loadData(showLoading: false),
-          ),
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: () => _loadData(showLoading: false)),
         ],
       ),
       body: isLoading
@@ -516,29 +554,22 @@ class _CustomerHomeState extends State<CustomerHome> {
               child: ListView(
                 padding: const EdgeInsets.all(20),
                 children: [
-                  // Stats Cards
                   Row(
                     children: [
                       Expanded(
-                        child: _statsCard(
-                            "Live Calls", liveCallCount, Colors.green.shade600),
-                      ),
+                          child: _statsCard("Live Calls", liveCallCount,
+                              Colors.green.shade600)),
                       const SizedBox(width: 16),
                       Expanded(
-                        child: _statsCard("In Queue", waitingSessions.length,
-                            Colors.orange.shade700),
-                      ),
+                          child: _statsCard("In Queue", waitingSessions.length,
+                              Colors.orange.shade700)),
                     ],
                   ),
                   const SizedBox(height: 32),
-
-                  // Waiting Sessions
                   if (waitingSessions.isNotEmpty) ...[
-                    const Text(
-                      "⏳ Your Waiting Sessions",
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
+                    const Text("⏳ Your Waiting Sessions",
+                        style: TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     ...waitingSessions.map((s) => Card(
                           margin: const EdgeInsets.only(bottom: 12),
@@ -555,14 +586,10 @@ class _CustomerHomeState extends State<CustomerHome> {
                         )),
                     const SizedBox(height: 24),
                   ],
-
-                  // Active Sessions
                   if (activeSessions.isNotEmpty) ...[
-                    const Text(
-                      "🎥 Active Sessions",
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
+                    const Text("🎥 Active Sessions",
+                        style: TextStyle(
+                            fontSize: 20, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     ...activeSessions.map((s) => Card(
                           margin: const EdgeInsets.only(bottom: 12),
@@ -579,12 +606,9 @@ class _CustomerHomeState extends State<CustomerHome> {
                         )),
                     const SizedBox(height: 24),
                   ],
-
-                  // Practitioners List
-                  const Text(
-                    "Choose a Practitioner",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
+                  const Text("Choose a Practitioner",
+                      style:
+                          TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   ...practitioners.map((p) {
                     final isBookingThis =
@@ -593,16 +617,14 @@ class _CustomerHomeState extends State<CustomerHome> {
                       margin: const EdgeInsets.only(bottom: 12),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.orange,
-                          child: Icon(Icons.person, color: Colors.white),
-                        ),
+                            backgroundColor: Colors.orange,
+                            child: Icon(Icons.person, color: Colors.white)),
                         title: Text(p.name ?? "Practitioner"),
                         subtitle: const Text("Available Practitioner"),
                         trailing: ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.orange.shade700,
-                            foregroundColor: Colors.white,
-                          ),
+                              backgroundColor: Colors.orange.shade700,
+                              foregroundColor: Colors.white),
                           onPressed:
                               isBookingThis ? null : () => _bookConsultation(p),
                           child: isBookingThis
@@ -610,10 +632,7 @@ class _CustomerHomeState extends State<CustomerHome> {
                                   width: 20,
                                   height: 20,
                                   child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: Colors.white,
-                                  ),
-                                )
+                                      strokeWidth: 2.5, color: Colors.white))
                               : const Text("Book"),
                         ),
                       ),
@@ -632,28 +651,16 @@ class _CustomerHomeState extends State<CustomerHome> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 10,
-            offset: Offset(0, 4),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))
         ],
       ),
       child: Column(
         children: [
-          Text(
-            value.toString(),
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
+          Text(value.toString(),
+              style: TextStyle(
+                  fontSize: 32, fontWeight: FontWeight.bold, color: color)),
           const SizedBox(height: 8),
-          Text(
-            title,
-            style: const TextStyle(fontSize: 14, color: Colors.grey),
-          ),
+          Text(title, style: const TextStyle(fontSize: 14, color: Colors.grey)),
         ],
       ),
     );

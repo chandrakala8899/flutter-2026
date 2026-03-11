@@ -445,17 +445,23 @@ class ApiService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        DateTime? newEnd =
-            DateTime.tryParse(data['newScheduledEnd']?.toString() ?? '');
+
         return {
           'success': data['success'] == true,
-          'newScheduledEnd': newEnd,
+          'newScheduledEnd':
+              data['newScheduledEnd']?.toString(), // ✅ Keep as STRING
+          'extendedMinutes':
+              data['extendedMinutes'] ?? 15, // ✅ Pass through minutes
+          'message': data['message']?.toString(),
         };
       }
-      return {'success': false};
+      return {
+        'success': false,
+        'message': 'Server error (${response.statusCode})'
+      };
     } catch (e) {
       debugPrint("ExtendSession error: $e");
-      return {'success': false};
+      return {'success': false, 'message': 'Network error'};
     }
   }
 

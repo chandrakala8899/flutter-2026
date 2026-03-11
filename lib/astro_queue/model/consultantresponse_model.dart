@@ -1,4 +1,5 @@
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 
 class ConsultationSessionResponse {
   final int? sessionId;
@@ -13,7 +14,7 @@ class ConsultationSessionResponse {
   final int? scheduledDurationMinutes;
 
   // Live session fields (NEW)
-  final int? actualDurationMinutes; 
+  final int? actualDurationMinutes;
   final DateTime? calledAt;
 
   // Common fields
@@ -111,6 +112,45 @@ class ConsultationSessionResponse {
       'agoraChannel': agoraChannel,
       'agoraToken': agoraToken,
     };
+  }
+
+  /// ✅ PERFECT copyWith - copies ALL fields correctly
+  ConsultationSessionResponse copyWith({
+    int? sessionId,
+    int? sessionNumber,
+    SessionStatus? status,
+    SimpleUser? customer,
+    SimpleUser? consultant,
+    DateTime? scheduledStart,
+    DateTime? scheduledEnd,
+    int? scheduledDurationMinutes,
+    int? actualDurationMinutes,
+    DateTime? calledAt,
+    DateTime? createdAt,
+    DateTime? startedAt,
+    DateTime? completedAt,
+    String? agoraChannel,
+    String? agoraToken,
+  }) {
+    return ConsultationSessionResponse(
+      sessionId: sessionId ?? this.sessionId,
+      sessionNumber: sessionNumber ?? this.sessionNumber,
+      status: status ?? this.status,
+      customer: customer ?? this.customer,
+      consultant: consultant ?? this.consultant,
+      scheduledStart: scheduledStart ?? this.scheduledStart,
+      scheduledEnd: scheduledEnd ?? this.scheduledEnd,
+      scheduledDurationMinutes:
+          scheduledDurationMinutes ?? this.scheduledDurationMinutes,
+      actualDurationMinutes:
+          actualDurationMinutes ?? this.actualDurationMinutes,
+      calledAt: calledAt ?? this.calledAt,
+      createdAt: createdAt ?? this.createdAt,
+      startedAt: startedAt ?? this.startedAt,
+      completedAt: completedAt ?? this.completedAt,
+      agoraChannel: agoraChannel ?? this.agoraChannel,
+      agoraToken: agoraToken ?? this.agoraToken,
+    );
   }
 }
 

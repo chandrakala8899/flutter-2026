@@ -7,19 +7,20 @@ import 'package:flutter_learning/router/approutes.dart';
 class AppRouter {
   static Route<dynamic>? generateRoute(RouteSettings settings) {
     switch (settings.name) {
-      // Auth Routes
+
       case AppRoutes.login:
         return _pageRoute(() => const LoginScreen());
       case AppRoutes.home:
-        return _pageRoute(() => const Scaffold(body: Center(child: Text('Home'))));
+        return _pageRoute(
+            () => const Scaffold(body: Center(child: Text('Home'))));
 
-      // Customer Routes  
+      // Customer Routes
       case AppRoutes.customerHome:
-        return _pageRoute(() =>  CustomerHome());
+        return _pageRoute(() => CustomerHome());
 
       // Practitioner Routes
       case AppRoutes.practitionerHome:
-        return _pageRoute(() =>  PractitionerHome());
+        return _pageRoute(() => PractitionerHome());
 
       default:
         return _errorRoute(settings.name!);
