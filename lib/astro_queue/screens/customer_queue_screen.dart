@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
+import 'package:flutter_learning/astro_queue/screens/chat_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/session_option_screen.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionscreen.dart';
+import 'package:flutter_learning/astro_queue/screens/vedio_call_screen.dart';
+import 'package:flutter_learning/astro_queue/services/chat_service.dart';
 
 class CustomerQueueScreen extends StatefulWidget {
   final int consultantId;
@@ -21,11 +24,13 @@ class CustomerQueueScreen extends StatefulWidget {
 class _CustomerQueueScreenState extends State<CustomerQueueScreen> {
   bool isLoading = true;
   List<ConsultationSessionResponse> waitingSessions = [];
+  late ChatService _chatService;
 
   @override
   void initState() {
     super.initState();
     _loadSessions();
+    _chatService = ChatService();
   }
 
   Future<void> _loadSessions() async {
@@ -47,17 +52,63 @@ class _CustomerQueueScreenState extends State<CustomerQueueScreen> {
   }
 
   void _joinSession(ConsultationSessionResponse session) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => SessionOptionScreen(
-          session: session,
-          isCustomer: true,
-          // channelName: session.sessionId.toString(),
+    final type = session.sessionType?.toUpperCase();
+
+    if (type == "CHAT") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            chatService: _chatService,
+            session: session,
+            isCustomer: true,
+            initialMessages: const [],
+          ),
         ),
-      ),
-    );
+      );
+    } else if (type == "AUDIO") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SessionScreen(
+            session: session,
+            isCustomer: true,
+            callType: CallType.audio,
+          ),
+        ),
+      );
+    } else if (type == "VIDEO") {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => SessionScreen(
+            session: session,
+            isCustomer: true,
+            callType: CallType.video,
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Invalid session type"),
+        ),
+      );
+    }
   }
+
+  // void _joinSession(ConsultationSessionResponse session) {
+  //   Navigator.push(
+  //     context,
+  //     MaterialPageRoute(
+  //       builder: (_) => SessionOptionScreen(
+  //         session: session,
+  //         isCustomer: true,
+  //         // channelName: session.sessionId.toString(),
+  //       ),
+  //     ),
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {

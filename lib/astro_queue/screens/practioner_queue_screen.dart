@@ -212,7 +212,7 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                       if (currentSession != null) ...[
                         const SizedBox(height: 8),
                         Text(
-                          "Customer: ${currentSession!.customer?.name ?? 'N/A'}",
+                          "Customer: ${currentSession!.customerName ?? 'N/A'}",
                           style: TextStyle(
                               color: Colors.white.withOpacity(0.9),
                               fontSize: 16),
@@ -344,7 +344,7 @@ class _PractitionerQueueScreenState extends State<PractitionerQueueScreen> {
                                 ),
                               ),
                               title: Text(
-                                session.customer?.name ?? 'Unknown Customer',
+                                session.customerName ?? 'Unknown Customer',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w700, fontSize: 18),
                               ),

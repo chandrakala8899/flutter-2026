@@ -1,5 +1,4 @@
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
-import 'package:flutter_learning/astro_queue/model/usermodel.dart';
 
 class ConsultationSessionResponse {
   final int? sessionId;
@@ -7,13 +6,18 @@ class ConsultationSessionResponse {
   final SessionStatus? status;
   final SimpleUser? customer;
   final SimpleUser? consultant;
+  final String? sessionType;
+  final int? customerId;
+  final String? customerName;
+  final int? consultantId;
+  final String? consultantName;
 
   // Booked session fields
   final DateTime? scheduledStart;
   final DateTime? scheduledEnd;
   final int? scheduledDurationMinutes;
 
-  // Live session fields (NEW)
+  // Live session fields
   final int? actualDurationMinutes;
   final DateTime? calledAt;
 
@@ -22,14 +26,20 @@ class ConsultationSessionResponse {
   final DateTime? startedAt;
   final DateTime? completedAt;
 
-  // Agora fields (for joining call)
+  // Agora fields
   final String? agoraChannel;
   final String? agoraToken;
+
+  // ⚡ Rates (added)
+  final double? audioRatePerMin;
+  final double? videoRatePerMin;
+  final double? chatRatePerMin;
 
   ConsultationSessionResponse({
     this.sessionId,
     this.sessionNumber,
     this.status,
+    this.sessionType,
     this.customer,
     this.consultant,
     this.scheduledStart,
@@ -42,12 +52,20 @@ class ConsultationSessionResponse {
     this.completedAt,
     this.agoraChannel,
     this.agoraToken,
+    this.customerId,
+    this.customerName,
+    this.consultantId,
+    this.consultantName,
+    this.audioRatePerMin,
+    this.videoRatePerMin,
+    this.chatRatePerMin,
   });
 
   factory ConsultationSessionResponse.fromJson(Map<String, dynamic> json) {
     return ConsultationSessionResponse(
       sessionId: json['sessionId'] as int?,
       sessionNumber: json['sessionNumber'] as int?,
+      sessionType: json['sessionType'] as String?,
       status: json['status'] != null
           ? SessionStatus.values.firstWhere(
               (e) =>
@@ -62,8 +80,6 @@ class ConsultationSessionResponse {
       consultant: json['consultant'] != null
           ? SimpleUser.fromJson(json['consultant'])
           : null,
-
-      // Scheduled (for bookings)
       scheduledStart: json['scheduledStart'] != null
           ? DateTime.tryParse(json['scheduledStart'])
           : null,
@@ -71,11 +87,7 @@ class ConsultationSessionResponse {
           ? DateTime.tryParse(json['scheduledEnd'])
           : null,
       scheduledDurationMinutes: json['scheduledDurationMinutes'] as int?,
-
-      // Actual duration (now always comes for completed sessions)
       actualDurationMinutes: json['actualDurationMinutes'] as int?,
-
-      // Timestamps
       calledAt:
           json['calledAt'] != null ? DateTime.tryParse(json['calledAt']) : null,
       createdAt: json['createdAt'] != null
@@ -87,10 +99,22 @@ class ConsultationSessionResponse {
       completedAt: json['completedAt'] != null
           ? DateTime.tryParse(json['completedAt'])
           : null,
-
-      // Agora
       agoraChannel: json['agoraChannel'] as String?,
       agoraToken: json['agoraToken'] as String?,
+      customerId: json['customerId'] as int?,
+      customerName: json['customerName'] as String?,
+      consultantId: json['consultantId'] as int?,
+      consultantName: json['consultantName'] as String?,
+      // ⚡ Rates
+      audioRatePerMin: json['audioRatePerMin'] != null
+          ? (json['audioRatePerMin'] as num).toDouble()
+          : null,
+      videoRatePerMin: json['videoRatePerMin'] != null
+          ? (json['videoRatePerMin'] as num).toDouble()
+          : null,
+      chatRatePerMin: json['chatRatePerMin'] != null
+          ? (json['chatRatePerMin'] as num).toDouble()
+          : null,
     );
   }
 
@@ -99,6 +123,7 @@ class ConsultationSessionResponse {
       'sessionId': sessionId,
       'sessionNumber': sessionNumber,
       'status': status?.toString().split('.').last,
+      'sessionType': sessionType,
       'customer': customer?.toJson(),
       'consultant': consultant?.toJson(),
       'scheduledStart': scheduledStart?.toIso8601String(),
@@ -111,6 +136,13 @@ class ConsultationSessionResponse {
       'completedAt': completedAt?.toIso8601String(),
       'agoraChannel': agoraChannel,
       'agoraToken': agoraToken,
+      'customerId': customerId,
+      'customerName': customerName,
+      'consultantId': consultantId,
+      'consultantName': consultantName,
+      'audioRatePerMin': audioRatePerMin,
+      'videoRatePerMin': videoRatePerMin,
+      'chatRatePerMin': chatRatePerMin,
     };
   }
 

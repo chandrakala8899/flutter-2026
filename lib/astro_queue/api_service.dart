@@ -1,8 +1,8 @@
-// api_service.dart
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/model/consultantresponse_model.dart';
+import 'package:flutter_learning/astro_queue/model/practioner_profile_response.dart';
 
 import 'package:flutter_learning/astro_queue/model/session_request_model.dart';
 import 'package:flutter_learning/astro_queue/model/usermodel.dart';
@@ -10,7 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiService {
-  static const String baseUrl = "http://localhost:16679"; // ✅ Android Emulator
+  static const String baseUrl = "http://localhost:16679";
 
   // ✅ 1. Login & Store User
   Future<Map<String, dynamic>> login(String email, String password) async {
@@ -63,7 +63,7 @@ class ApiService {
   }
 
   // ✅ 4. All Users (Customers list)
-  static Future<List<UserModel>> getAllUsers() async {
+  static Future<List<PractionerProfileResponse>> getAllUsers() async {
     try {
       final response = await http.get(
         Uri.parse("$baseUrl/api/login/get-all"),
@@ -71,7 +71,9 @@ class ApiService {
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
-        return data.map((json) => UserModel.fromLoginJson(json)).toList();
+        return data
+            .map((json) => PractionerProfileResponse.fromJson(json))
+            .toList();
       }
       throw Exception("Failed to load users");
     } catch (e) {
@@ -404,6 +406,34 @@ class ApiService {
     }
   }
 
+  Future<String?> getAgoraToken(String channelName, int uid) async {
+    try {
+      final uri = Uri.parse(
+        "$baseUrl/api/agora/token?channelName=$channelName&uid=$uid",
+      );
+
+      final response = await http.get(uri);
+
+      if (response.statusCode == 200) {
+        final body = response.body;
+
+        // handle both JSON and plain token
+        if (body.startsWith("{")) {
+          final data = jsonDecode(body);
+          return data["token"];
+        }
+
+        return body.trim();
+      }
+
+      debugPrint("Token API error: ${response.statusCode}");
+    } catch (e) {
+      debugPrint("Token fetch error: $e");
+    }
+
+    return null;
+  }
+
   Future<String> getAgoraChatToken(String userId) async {
     final response = await http.get(
       Uri.parse("$baseUrl/api/agora/chat-token?userId=$userId"),
@@ -436,28 +466,27 @@ class ApiService {
     return [];
   }
 
-  static Future<Map<String, dynamic>> extendSession(String sessionId) async {
+  static Future<Map<String, dynamic>> extendSession(
+    String sessionId,
+    int minutes,
+    String sessionType,
+  ) async {
     try {
       final response = await http.post(
         Uri.parse("$baseUrl/api/sessions/extend-session/$sessionId"),
         headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          "minutes": minutes,
+          "sessionType": sessionType,
+        }),
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      final data = jsonDecode(response.body);
 
-        return {
-          'success': data['success'] == true,
-          'newScheduledEnd':
-              data['newScheduledEnd']?.toString(), // ✅ Keep as STRING
-          'extendedMinutes':
-              data['extendedMinutes'] ?? 15, // ✅ Pass through minutes
-          'message': data['message']?.toString(),
-        };
-      }
       return {
-        'success': false,
-        'message': 'Server error (${response.statusCode})'
+        'success': data['success'] == true,
+        'message': data['message'],
+        'extendedMinutes': data['extendedMinutes'],
       };
     } catch (e) {
       debugPrint("ExtendSession error: $e");

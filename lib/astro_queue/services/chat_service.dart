@@ -16,25 +16,21 @@ class ChatService {
     _client = StompClient(
       config: StompConfig.sockJS(
         url: 'http://localhost:16679/ws',
-
         stompConnectHeaders: {
           'customerId': userId,
         },
         webSocketConnectHeaders: {
           'customerId': userId,
         },
-
         onConnect: (StompFrame frame) {
           print("✅ WebSocket Connected");
           _isConnected = true;
 
           _subscribe(sessionId);
         },
-
         onWebSocketError: (error) {
           print("❌ WebSocket Error: $error");
         },
-
         onStompError: (frame) {
           print("❌ STOMP Error: ${frame.body}");
         },
@@ -86,5 +82,4 @@ class ChatService {
     _client?.deactivate();
     _isConnected = false;
   }
-  
 }

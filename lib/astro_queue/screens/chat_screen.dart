@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart' show kAlwaysDismissedAnimation;
 import 'package:flutter/material.dart';
 import 'package:flutter_learning/astro_queue/api_service.dart';
 import 'package:flutter_learning/astro_queue/model/enumsession.dart';
+import 'package:flutter_learning/astro_queue/model/practioner_profile_response.dart';
 import 'package:flutter_learning/astro_queue/screens/sessionextend_banner.dart';
+import 'package:flutter_learning/astro_queue/screens/wallet_screen.dart';
 import 'package:flutter_learning/astro_queue/services/websocketservice.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
@@ -61,81 +63,102 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   static const int _uidPractitioner = 2;
 
   Timer? _countdownTimer;
-
-  // ← Updated ONLY from WebSocket SESSION_EXTENDED event (source of truth)
   DateTime? _effectiveScheduledEnd;
 
   final ApiService _apiService = ApiService();
   bool _isSessionEnded = false;
   late WebSocketService _webSocketService;
-
-  // Flag to prevent double-processing when both /queue/session
-  // and /queue/session-events fire for the same extension
   bool _sessionExtendedLocally = false;
+  final Set<String> _processedMessageIds = {}; // server + local temp IDs
+  final Map<String, String> _pendingMessages =
+      {}; // localId → text (for matching echo)
 
-  // ──────────────────────────────────────────────────────────────
-  // INIT
-  // ──────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
+
+    print("SessionId: ${widget.session.sessionId}");
+    print("CustomerId: ${widget.session.customerId}");
+    print("ConsultantId: ${widget.session.consultantId}");
+
     _speech = stt.SpeechToText();
     _webSocketService = WebSocketService();
+
     _initAnimations();
     _initSpeech();
 
     _effectiveScheduledEnd = widget.session.scheduledEnd;
     _startCountdownTimer();
 
-    _webSocketService.connect(
-      userId: widget.isCustomer
-          ? (widget.session.customer?.id ?? 1)
-          : (widget.session.consultant?.id ?? 2),
-      onSessionUpdate: _handleSessionUpdate,
-      onSessionEvent: _handleSessionEvent,
-      onError: (error) => debugPrint("WS Error: $error"),
-    );
+    final sessionId = widget.session.sessionId;
+    final userId = widget.isCustomer
+        ? widget.session.customerId
+        : widget.session.consultantId;
 
-    if (widget.session.sessionId != null) {
-      widget.chatService.connect(
-        widget.isCustomer ? " " : " ",
-        sessionId: widget.session.sessionId!,
-      );
-
-      widget.chatService.onMessageReceived = (data) {
-        final messageId = data["id"]?.toString();
-        final text = data["message"]?.toString().trim() ?? "";
-
-        if (_localSentMessages.contains(text) ||
-            (messageId != null && _serverMessages.contains(messageId))) {
-          return;
-        }
-
-        setState(() {
-          messages.insert(0, _processMessage(data));
-          if (messageId != null) _serverMessages.add(messageId);
-        });
-
-        _scrollToBottom();
-      };
-
-      _loadChatHistory();
+    if (sessionId != null && userId != null) {
+      widget.chatService.connect(userId.toString(), sessionId: sessionId);
     } else {
-      messages = widget.initialMessages.map(_processMessage).toList();
+      debugPrint("❌ SessionId or UserId is null");
     }
 
+    widget.chatService.onMessageReceived = (data) {
+      final serverId = data["id"]?.toString() ?? "";
+      if (serverId.isEmpty || _processedMessageIds.contains(serverId)) return;
+
+      final messageText = data["message"]?.toString() ?? "";
+
+      // Check if this is echo of our pending message
+      String? matchingLocalId;
+      for (var entry in _pendingMessages.entries) {
+        if (entry.value == messageText) {
+          matchingLocalId = entry.key;
+          break;
+        }
+      }
+
+      if (matchingLocalId != null) {
+        // Update existing local message instead of adding duplicate
+        _updateLocalMessageId(matchingLocalId, serverId);
+        _pendingMessages.remove(matchingLocalId);
+        _processedMessageIds.add(serverId);
+        setState(() {}); // refresh UI
+        _scrollToBottom();
+        return;
+      }
+
+      // New message from other side
+      setState(() {
+        messages.insert(0, _processMessage(data));
+        _processedMessageIds.add(serverId);
+      });
+
+      _scrollToBottom();
+    };
+
+    _loadChatHistory();
+
+    // Listen to text changes to show/hide send button
     _controller.addListener(() {
-      setState(() => _showSendButton = _controller.text.trim().isNotEmpty);
+      if (mounted) {
+        setState(() {
+          _showSendButton = _controller.text.trim().isNotEmpty;
+        });
+      }
     });
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // WEBSOCKET — /user/queue/session-events
-  // PRIMARY handler for SESSION_EXTENDED, EXPIRY_WARNING, SESSION_EXPIRED
-  // ──────────────────────────────────────────────────────────────
+  void _updateLocalMessageId(String oldLocalId, String newServerId) {
+    for (int i = 0; i < messages.length; i++) {
+      if (messages[i]["id"] == oldLocalId) {
+        messages[i]["id"] = newServerId;
+        break;
+      }
+    }
+  }
+
   void _handleSessionEvent(Map<String, dynamic> event) {
     final String? eventType = event['eventType'];
-    debugPrint("⏳ ChatScreen → Session Event: $eventType | $event");
+    debugPrint("ChatScreen → Session Event: $eventType | $event");
 
     switch (eventType) {
       case 'EXPIRY_WARNING':
@@ -156,10 +179,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // WEBSOCKET — /user/queue/session (legacy fallback)
-  // Only processes session_extended if session-events didn't already handle it
-  // ──────────────────────────────────────────────────────────────
   void _handleSessionUpdate(Map<String, dynamic> data) {
     print(" FULL DATA: $data");
 
@@ -235,59 +254,55 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // ──────────────────────────────────────────────────────────────
   void _handleSessionExtendedFromEvent(Map<String, dynamic> event) {
     final String msg = event['message'] ?? "Session extended!";
-    final int minutes = (event['minutesLeft'] as int?) ?? 15;
-
-    //  Use server's exact newScheduledEnd — authoritative source of truth
+    final int minutes = (event['extendedMinutes'] as int?) ?? 15;
     final String? newEndStr = event['newScheduledEnd'] as String?;
-
-    if (newEndStr == null) {
-      debugPrint(
-          " SESSION_EXTENDED missing newScheduledEnd — fallback +$minutes mins from now");
-    }
 
     final DateTime newExpiry = newEndStr != null
         ? (DateTime.tryParse(newEndStr) ??
             DateTime.now().add(Duration(minutes: minutes)))
         : DateTime.now().add(Duration(minutes: minutes));
 
-    setState(() {
-      _effectiveScheduledEnd = newExpiry;
-      _isSessionEnded = false;
-    });
-
-    _restartCountdownTimer();
-
     final String formattedEnd =
         "${newExpiry.hour.toString().padLeft(2, '0')}:${newExpiry.minute.toString().padLeft(2, '0')}";
 
     final now = DateTime.now();
-    setState(() {
-      messages.insert(0, {
-        "id": "system_${now.millisecondsSinceEpoch}",
-        "text": "$msg\nNew end time: $formattedEnd",
-        "sentAt": now,
-        "time": _formatMessageTime(now),
-        "dateHeader": _getDateHeader(now),
-        "isMe": false,
-        "type": "system",
-      });
-    });
+    final uniqueId = "system_extend_${now.millisecondsSinceEpoch}";
 
-    _scrollToBottom();
+    // Prevent duplicate system messages
+    final alreadyExists = messages.any((m) =>
+        m["type"] == "system" &&
+        m["text"]?.contains("extended by $minutes") == true);
+
+    if (!alreadyExists) {
+      setState(() {
+        _effectiveScheduledEnd = newExpiry;
+        _isSessionEnded = false;
+
+        messages.insert(0, {
+          "id": uniqueId,
+          "text": "$msg\nNew end time: $formattedEnd",
+          "sentAt": now,
+          "time": _formatMessageTime(now),
+          "dateHeader": _getDateHeader(now),
+          "isMe": false,
+          "type": "system",
+        });
+      });
+
+      _restartCountdownTimer();
+      _scrollToBottom();
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text("Extended +$minutes mins → ends at $formattedEnd ✓"),
         backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
       ));
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // SESSION EXTENDED — from /queue/session (legacy fallback)
-  // Used only when session-events didn't fire
-  // ──────────────────────────────────────────────────────────────
   void _handleSessionExtended(Map<String, dynamic> data) {
     final String? newEndStr = data['newScheduledEnd'] as String?;
     final int minutes = (data['extendedMinutes'] as int?) ?? 15;
@@ -366,28 +381,64 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     ));
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // EXTEND SESSION — API call only, NO local end-time update
-  // End time comes exclusively from WebSocket SESSION_EXTENDED event
-  // ──────────────────────────────────────────────────────────────
-  Future<void> _extendSession() async {
+  Widget _extendOption(int minutes) {
+    return ListTile(
+      leading: const Icon(Icons.timer, color: Colors.orange),
+      title: Text("Extend $minutes minutes"),
+      onTap: () {
+        Navigator.pop(context);
+        _extendSession(minutes);
+      },
+    );
+  }
+
+  void _showExtendOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                "Extend Session",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+              _extendOption(10),
+              _extendOption(20),
+              _extendOption(30),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _extendSession(int minutes) async {
     if (_isExtending || widget.session.sessionId == null) return;
+
     if (mounted) setState(() => _isExtending = true);
 
     try {
-      final result =
-          await ApiService.extendSession(widget.session.sessionId!.toString());
+      final result = await ApiService.extendSession(
+        widget.session.sessionId!.toString(),
+        minutes,
+        widget.session.sessionType.toString(),
+      );
 
       if (!mounted) return;
 
       if (result['success'] == true) {
-        // ✅ Update end time directly from API response
-        final int minutes = (result['extendedMinutes'] as int?) ?? 15;
+        // Success handling (your existing code)
         final DateTime? current =
             _effectiveScheduledEnd ?? widget.session.scheduledEnd;
         final DateTime newExpiry =
             (current ?? DateTime.now()).add(Duration(minutes: minutes));
-
         final String formattedEnd =
             "${newExpiry.hour.toString().padLeft(2, '0')}:${newExpiry.minute.toString().padLeft(2, '0')}";
 
@@ -396,6 +447,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         setState(() {
           _effectiveScheduledEnd = newExpiry;
           _isSessionEnded = false;
+
           messages.insert(0, {
             "id": "system_${now.millisecondsSinceEpoch}",
             "text":
@@ -411,36 +463,94 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _restartCountdownTimer();
         _scrollToBottom();
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Extended +$minutes mins → ends at $formattedEnd ✓"),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-        ));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text("Extended +$minutes mins → ends at $formattedEnd ✓"),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(result['message'] ?? 'Extension failed'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ));
+        // Insufficient balance → go to wallet
+        final proceed = await _showInsufficientWalletDialog(
+            result['message'] ?? "Insufficient balance");
+
+        if (proceed == true && mounted) {
+          // NEW: Wait for wallet screen to return, then re-try extension
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => WalletScreen(
+                consultationSessionResponse: widget.session,
+                userId: widget.session.customerId!,
+              ),
+            ),
+          );
+
+          // After returning from WalletScreen → automatically try extending again
+          if (mounted) {
+            // Optional: small delay + feedback
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Checking updated balance...")),
+            );
+            await Future.delayed(const Duration(milliseconds: 800));
+
+            // Re-call extend with same minutes
+            _extendSession(minutes);
+          }
+        }
       }
     } catch (e) {
-      debugPrint("Extend error: $e");
+      debugPrint("Extend session failed: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Network error. Please try again."),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to extend session: ${e.toString()}"),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _isExtending = false);
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // COUNTDOWN TIMER
-  // ──────────────────────────────────────────────────────────────
+  Future<bool?> _showInsufficientWalletDialog(String message) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.account_balance_wallet, color: Colors.orange),
+            SizedBox(width: 10),
+            Text("Insufficient Balance"),
+          ],
+        ),
+        content: Text(
+          message,
+          style: const TextStyle(fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.add_card),
+            label: const Text("Top Up Wallet"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _startCountdownTimer() {
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -577,15 +687,32 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     if (_isListening) {
       await _speech.stop();
-      setState(() {
-        _isListening = false;
-        _soundLevel = 0.0;
-      });
+      setState(() => _isListening = false);
     }
 
-    _addLocalTextMessage(text);
-    _localSentMessages.add(text);
+    final now = DateTime.now();
+    final localId = "local_msg_${now.millisecondsSinceEpoch}";
 
+    // Store pending message for deduplication
+    _pendingMessages[localId] = text;
+
+    setState(() {
+      messages.insert(0, {
+        "id": localId,
+        "text": text,
+        "sentAt": now,
+        "time": _formatMessageTime(now),
+        "dateHeader": _getDateHeader(now),
+        "isMe": true,
+        "type": "text",
+      });
+      _processedMessageIds.add(localId);
+      _showSendButton = false;
+    });
+
+    _scrollToBottom();
+
+    // Send to server
     widget.chatService.sendMessage(
       sessionId: widget.session.sessionId!,
       senderId: widget.isCustomer ? _uidCustomer : _uidPractitioner,
@@ -594,11 +721,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     _controller.clear();
     _pendingSpeechText = "";
-    setState(() => _showSendButton = false);
 
-    await Future.delayed(const Duration(milliseconds: 500));
+    await Future.delayed(const Duration(milliseconds: 400));
     _isSending = false;
-    _scrollToBottom();
   }
 
   void _addLocalTextMessage(String text) {
@@ -845,13 +970,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _scrollToBottom();
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // MENU ACTIONS
-  // ──────────────────────────────────────────────────────────────
   void _handleMenuAction(String action) {
     switch (action) {
       case 'extend':
-        _extendSession();
+        _showExtendOptions();
+        break;
         break;
       case 'end_session':
         _endSession();
@@ -928,15 +1051,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   String _getHeaderName() {
     if (widget.isCustomer) {
-      return widget.session.consultant?.name ?? "Practitioner";
+      return widget.session.consultantName ?? "Practitioner";
     } else {
-      return widget.session.customer?.name ?? "Customer";
+      return widget.session.customerName ?? "Customer";
     }
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // MESSAGE BUBBLE
-  // ──────────────────────────────────────────────────────────────
   Widget _bubble(Map<String, dynamic> msg) {
     final bool isMe = msg["isMe"];
     final String? type = msg["type"];
@@ -1051,9 +1171,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // BUILD
-  // ──────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final String headerName = _getHeaderName();
@@ -1099,7 +1216,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     child: Row(children: [
                       Icon(Icons.more_time, color: Colors.orange, size: 20),
                       SizedBox(width: 12),
-                      Text('Extend 15 mins',
+                      Text('Extend Session',
                           style: TextStyle(color: Colors.white))
                     ]),
                   ),
@@ -1126,15 +1243,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         body: Stack(
           children: [
             Positioned.fill(
-                child: Image.asset("assets/images/whats_app_background.jpg",
-                    fit: BoxFit.cover)),
+              child: Image.asset("assets/images/whats_app_background.jpg",
+                  fit: BoxFit.cover),
+            ),
             Column(
               children: [
                 SessionExtendBanner(
                   session: widget.session,
                   isCustomer: widget.isCustomer,
                   effectiveScheduledEnd: _effectiveScheduledEnd,
-                  onExtend: _extendSession,
+                  onExtend: _showExtendOptions,
                   isExtending: _isExtending,
                 ),
                 Expanded(
@@ -1161,9 +1279,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   child: Row(
                     children: [
                       IconButton(
-                          icon:
-                              Icon(Icons.attach_file, color: Colors.grey[600]),
-                          onPressed: _showAttachmentOptions),
+                        icon: Icon(Icons.attach_file, color: Colors.grey[600]),
+                        onPressed: _showAttachmentOptions,
+                      ),
                       Expanded(
                         child: TextField(
                           controller: _controller,
@@ -1174,8 +1292,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                 : "Type a message",
                             hintStyle: TextStyle(color: Colors.grey[500]),
                             border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(25),
-                                borderSide: BorderSide.none),
+                              borderRadius: BorderRadius.circular(25),
+                              borderSide: BorderSide.none,
+                            ),
                             filled: true,
                             fillColor: Colors.grey[100],
                             contentPadding: const EdgeInsets.symmetric(
@@ -1195,11 +1314,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                   icon: const Icon(Icons.send,
                                       color: Colors.green, size: 24),
                                   style: IconButton.styleFrom(
-                                      backgroundColor:
-                                          Colors.green.withOpacity(0.1),
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(50))),
+                                    backgroundColor:
+                                        Colors.green.withOpacity(0.1),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(50)),
+                                  ),
                                   onPressed: _sendMessage,
                                 ),
                               )
@@ -1229,12 +1349,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                             width: pulseSize,
                                             height: pulseSize,
                                             decoration: BoxDecoration(
-                                                shape: BoxShape.circle,
-                                                color: Colors.red.withOpacity(
-                                                    0.3 +
-                                                        (animationValue * 0.3) +
-                                                        (soundMultiplier *
-                                                            0.4))),
+                                              shape: BoxShape.circle,
+                                              color: Colors.red.withOpacity(
+                                                  0.3 +
+                                                      (animationValue * 0.3) +
+                                                      (soundMultiplier * 0.4)),
+                                            ),
                                           );
                                         },
                                       ),
@@ -1243,13 +1363,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                       constraints: const BoxConstraints(
                                           minWidth: 48, minHeight: 48),
                                       icon: Icon(
-                                          _isListening
-                                              ? Icons.mic
-                                              : Icons.mic_none,
-                                          color: _isListening
-                                              ? Colors.red
-                                              : Colors.grey[600],
-                                          size: 24),
+                                        _isListening
+                                            ? Icons.mic
+                                            : Icons.mic_none,
+                                        color: _isListening
+                                            ? Colors.red
+                                            : Colors.grey[600],
+                                        size: 24,
+                                      ),
                                       style: IconButton.styleFrom(
                                         backgroundColor: _isListening
                                             ? Colors.red.withOpacity(0.15)

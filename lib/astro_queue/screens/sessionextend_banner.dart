@@ -23,7 +23,8 @@ class SessionExtendBanner extends StatelessWidget {
     if (!isCustomer || endTime == null) return const SizedBox.shrink();
 
     final remaining = endTime.difference(DateTime.now());
-    if (remaining.inMinutes > 5 || remaining.isNegative) return const SizedBox.shrink();
+    if (remaining.inMinutes > 5 || remaining.isNegative)
+      return const SizedBox.shrink();
 
     final min = remaining.inMinutes.toString().padLeft(2, '0');
     final sec = (remaining.inSeconds % 60).toString().padLeft(2, '0');
@@ -62,11 +63,16 @@ class SessionExtendBanner extends StatelessWidget {
               backgroundColor: Colors.white,
               foregroundColor: Colors.orange.shade700,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30)),
             ),
             child: isExtending
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text("Extend 15 mins", style: TextStyle(fontWeight: FontWeight.bold)),
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text("Extend  Session",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
